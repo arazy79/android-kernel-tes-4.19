@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/ SPDX-License-Identifier: GPL-2.0-only
 /* Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  */
 
@@ -989,7 +989,7 @@ int smblib_set_icl_current(struct smb_charger *chg, int icl_ua)
 			goto enable_icl_changed_interrupt;
 		}
 	} else {
-		set_sdp_current(chg, 100000);
+		set_sdp_current(chg, 900000);
 		rc = smblib_set_charge_param(chg, &chg->param.usb_icl, icl_ua);
 		if (rc < 0) {
 			smblib_err(chg, "Couldn't set HC ICL rc=%d\n", rc);
@@ -2833,6 +2833,10 @@ int smblib_get_prop_die_health(struct smb_charger *chg,
 
 #define SDP_CURRENT_UA			500000
 #define CDP_CURRENT_UA			1500000
+
+#ifdef CONFIG_MACH_ASUS_SDM660
+#define DCP_CURRENT_UA			2100000
+#else
 #define DCP_CURRENT_UA			1500000
 #define HVDCP_CURRENT_UA		3000000
 #define TYPEC_DEFAULT_CURRENT_UA	900000
@@ -3593,12 +3597,12 @@ int smbchg_jeita_judge_state(int old_State, int batt_tempr)
 		}
 	}
 	if (old_State == JEITA_STATE_RANGE_500_to_600 && result_State == JEITA_STATE_RANGE_100_to_500) {
-		if (batt_tempr >= 470) {
+		if (batt_tempr >= 500) {
 			result_State = old_State;
 		}
 	}
 	if (old_State == JEITA_STATE_LARGER_THAN_600 && result_State == JEITA_STATE_RANGE_500_to_600) {
-		if (batt_tempr >= 570) {
+		if (batt_tempr >= 600) {
 			result_State = old_State;
 		}
 	}
@@ -3669,11 +3673,11 @@ void jeita_rule(void)
 	case JEITA_STATE_LESS_THAN_0:
 		charging_enable = EN_BAT_CHG_EN_COMMAND_FALSE;
 		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P357;
-		FCC_reg_value = SMBCHG_FAST_CHG_CURRENT_VALUE_850MA;
+		FCC_reg_value = SMBCHG_FAST_CHG_CURRENT_VALUE_1400MA;
 		break;
 	case JEITA_STATE_RANGE_0_to_100:
 		charging_enable = EN_BAT_CHG_EN_COMMAND_TRUE;
-		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P492;
+		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P485;
 		FCC_reg_value = SMBCHG_FAST_CHG_CURRENT_VALUE_4000MA;
 		rc = SW_recharge(smbchg_dev);
 		if (rc < 0) {
@@ -3682,7 +3686,7 @@ void jeita_rule(void)
 		break;
 	case JEITA_STATE_RANGE_100_to_500:
 		charging_enable = EN_BAT_CHG_EN_COMMAND_TRUE;
-		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P492;
+		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P485;
 		FCC_reg_value = SMBCHG_FAST_CHG_CURRENT_VALUE_4000MA;
 		rc = SW_recharge(smbchg_dev);
 		if (rc < 0) {
@@ -3691,13 +3695,13 @@ void jeita_rule(void)
 		break;
 	case JEITA_STATE_RANGE_500_to_600:
 		charging_enable = EN_BAT_CHG_EN_COMMAND_TRUE;
-		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P492;
+		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P485;
 		FCC_reg_value = SMBCHG_FAST_CHG_CURRENT_VALUE_4000MA;
 		break;
 	case JEITA_STATE_LARGER_THAN_600:
 		charging_enable = EN_BAT_CHG_EN_COMMAND_FALSE;
-		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P485;
-		FCC_reg_value = SMBCHG_FAST_CHG_CURRENT_VALUE_4000MA;
+		FV_CFG_reg_value = SMBCHG_FLOAT_VOLTAGE_VALUE_4P004;
+		FCC_reg_value = SMBCHG_FAST_CHG_CURRENT_VALUE_1500MA;
 		break;
 	}
 	rc = jeita_status_regs_write(charging_enable, FV_CFG_reg_value, FCC_reg_value);
