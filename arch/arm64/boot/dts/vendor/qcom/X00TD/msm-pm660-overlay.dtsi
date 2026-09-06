@@ -24,8 +24,8 @@
 };
 
 &pm660_charger {
-	qcom,use-extcon;
-	qcom,fcc-max-ua = <2500000>;
+	qcom,micro-usb;
+	qcom,fcc-max-ua = <2300000>;
 	qcom,fv-max-uv = <4350000>;
 	qcom,usb-icl-ua = <2500000>;
 	qcom,float-option = <1>;
