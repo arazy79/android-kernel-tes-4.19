@@ -1110,11 +1110,6 @@ static enum power_supply_property smb2_batt_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX,
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT,
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
-#ifdef CONFIG_MACH_ASUS_SDM660
-/* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 start */
-	POWER_SUPPLY_PROP_CHARGING_ENABLED,
-/* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 end */
-#endif
 	POWER_SUPPLY_PROP_CHARGE_FULL,
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 	POWER_SUPPLY_PROP_TIME_TO_FULL_NOW,
@@ -1146,13 +1141,7 @@ static int smb2_batt_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 		val->intval = !get_effective_result(chg->chg_disable_votable);
 		break;
-#ifdef CONFIG_MACH_ASUS_SDM660
-/* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 start */
-	
-		rc = smblib_get_prop_charging_enabled(chg, val);
-		break;
-/* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 end */
-#endif
+
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
 		rc = smblib_get_prop_batt_charge_type(chg, val);
 		break;
@@ -1288,19 +1277,17 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 		vote(chg->chg_disable_votable, USER_VOTER, !!!val->intval, 0);
+		/* FIX: Sync input_suspend with charging_enabled (inverted).
+		 * charging_enabled=0 -> input_suspend=1 (cut input)
+		 * charging_enabled=1 -> input_suspend=0 (resume input)
+		 */
 		{
 			union power_supply_propval suspend_val = {0};
 			suspend_val.intval = !val->intval;
 			rc = smblib_set_prop_input_suspend(chg, &suspend_val);
 		}
 		break;
-#ifdef CONFIG_MACH_ASUS_SDM660
-/* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 start */
-	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
-		rc = smblib_set_prop_charging_enabled(chg, val);
-		break;
-/* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 end */
-#endif
+
 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
 		rc = smblib_set_prop_system_temp_level(chg, val);
 		break;
@@ -1389,16 +1376,13 @@ static int smb2_batt_prop_is_writeable(struct power_supply *psy,
 {
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
 	case POWER_SUPPLY_PROP_CAPACITY:
 	case POWER_SUPPLY_PROP_PARALLEL_DISABLE:
 	case POWER_SUPPLY_PROP_DP_DM:
 	case POWER_SUPPLY_PROP_RERUN_AICL:
-#ifdef CONFIG_MACH_ASUS_SDM660
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
-#endif
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMITED:
 	case POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED:
 	case POWER_SUPPLY_PROP_SW_JEITA_ENABLED:
