@@ -724,7 +724,40 @@ static ssize_t store_##file_name					\
 }
 
 store_one(scaling_min_freq, min);
-store_one(scaling_max_freq, max);
+
+static ssize_t store_scaling_max_freq(struct cpufreq_policy *policy,
+				      const char *buf, size_t count)
+{
+	int ret, temp;
+	struct cpufreq_policy new_policy;
+
+	memcpy(&new_policy, policy, sizeof(*policy));
+	new_policy.min = policy->user_policy.min;
+	new_policy.max = policy->user_policy.max;
+
+	ret = sscanf(buf, "%u", &new_policy.max);
+	if (ret != 1)
+		return -EINVAL;
+
+	/* OC Hardfloor: block userspace downclock */
+	if (policy->cpu <= 3) {
+		/* Little cluster: cpu0-3 */
+		if (new_policy.max < 2150400)
+			new_policy.max = 2150400;
+	} else {
+		/* Big cluster: cpu4-7 */
+		if (new_policy.max < 2457600)
+			new_policy.max = 2457600;
+	}
+
+	temp = new_policy.max;
+	ret = cpufreq_set_policy(policy, &new_policy);
+	if (!ret)
+		policy->user_policy.max = temp;
+
+	return ret ? ret : count;
+}
+
 
 /**
  * show_cpuinfo_cur_freq - current CPU frequency as detected by hardware
