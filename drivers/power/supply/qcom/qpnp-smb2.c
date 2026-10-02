@@ -1143,6 +1143,9 @@ static int smb2_batt_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 		rc = smblib_get_prop_input_suspend(chg, val);
 		break;
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+		val->intval = !get_effective_result(chg->chg_disable_votable);
+		break;
 #ifdef CONFIG_MACH_ASUS_SDM660
 /* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 start */
 	
@@ -1283,6 +1286,14 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 		rc = smblib_set_prop_input_suspend(chg, val);
 		break;
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+		vote(chg->chg_disable_votable, USER_VOTER, !!!val->intval, 0);
+		{
+			union power_supply_propval suspend_val = {0};
+			suspend_val.intval = !val->intval;
+			rc = smblib_set_prop_input_suspend(chg, &suspend_val);
+		}
+		break;
 #ifdef CONFIG_MACH_ASUS_SDM660
 /* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 start */
 	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
@@ -1378,6 +1389,7 @@ static int smb2_batt_prop_is_writeable(struct power_supply *psy,
 {
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 	case POWER_SUPPLY_PROP_SYSTEM_TEMP_LEVEL:
 	case POWER_SUPPLY_PROP_CAPACITY:
