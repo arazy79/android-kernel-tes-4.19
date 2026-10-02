@@ -95,4 +95,4 @@ module_exit(autocut_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Auto-cut charging with plug-in resume support");
-MODULE_AUTHOR("X00TD Porter");autocut.c
+MODULE_AUTHOR("X00TD Porter");
