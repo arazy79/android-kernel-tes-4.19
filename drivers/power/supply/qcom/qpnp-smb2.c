@@ -1145,7 +1145,7 @@ static int smb2_batt_get_prop(struct power_supply *psy,
 		break;
 #ifdef CONFIG_MACH_ASUS_SDM660
 /* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 start */
-	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+	
 		rc = smblib_get_prop_charging_enabled(chg, val);
 		break;
 /* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 end */
@@ -1279,6 +1279,18 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 	switch (prop) {
 	case POWER_SUPPLY_PROP_STATUS:
 		rc = smblib_set_prop_batt_status(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_CHARGING_ENABLED:
+		vote(chg->chg_disable_votable, USER_VOTER, !!!val->intval, 0);
+		/* FIX: Sync input_suspend with charging_enabled (inverted).
+		 * charging_enabled=0 -> input_suspend=1 (cut input)
+		 * charging_enabled=1 -> input_suspend=0 (resume input)
+		 */
+		{
+			union power_supply_propval suspend_val = {0};
+			suspend_val.intval = !val->intval;
+			rc = smblib_set_prop_input_suspend(chg, &suspend_val);
+		}
 		break;
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 		rc = smblib_set_prop_input_suspend(chg, val);
