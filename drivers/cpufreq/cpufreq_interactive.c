@@ -645,7 +645,7 @@ static int cpufreq_interactive_notifier(struct notifier_block *nb,
 					unsigned long val, void *data)
 {
 	struct cpufreq_freqs *freq = data;
-	struct interactive_cpu *icpu = &per_cpu(interactive_cpu, freq->cpu);
+	struct interactive_cpu *icpu = &per_cpu(interactive_cpu, freq->policy->cpu);
 	unsigned long flags;
 
 	if (val != CPUFREQ_POSTCHANGE)
@@ -660,7 +660,7 @@ static int cpufreq_interactive_notifier(struct notifier_block *nb,
 	}
 
 	spin_lock_irqsave(&icpu->load_lock, flags);
-	update_load(icpu, freq->cpu);
+	update_load(icpu, freq->policy->cpu);
 	spin_unlock_irqrestore(&icpu->load_lock, flags);
 
 	up_read(&icpu->enable_sem);
