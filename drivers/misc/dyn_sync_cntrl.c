@@ -1,22 +1,26 @@
 /*
  * Dynamic sync control driver V2 (modif - no state notifier)
  * by andip71, ported by user
+ *
+ * Fix: flush on resume is now done from a workqueue, not directly in the
+ * resume path (avoids deadlock/hang when workers are still frozen).
+ * Panic notifier removed (syncing in panic context is unsafe).
  */
 
+#include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/init.h>
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
-#include <linux/mutex.h>
 #include <linux/notifier.h>
 #include <linux/reboot.h>
+#include <linux/workqueue.h>
 #include <linux/writeback.h>
 #include <linux/dyn_sync_cntrl.h>
 
 #define DYN_FSYNC_ACTIVE_DEFAULT true
 #define DYN_FSYNC_VERSION_MAJOR 2
 #define DYN_FSYNC_VERSION_MINOR 1
-
-static DEFINE_MUTEX(fsync_mutex);
 
 bool suspend_active = false;
 bool dyn_fsync_active = DYN_FSYNC_ACTIVE_DEFAULT;
@@ -29,22 +33,24 @@ static void dyn_fsync_force_flush(void)
 	sync_filesystems(1);
 }
 
+static void dyn_fsync_flush_fn(struct work_struct *work)
+{
+	dyn_fsync_force_flush();
+}
+static DECLARE_WORK(dyn_fsync_flush_work, dyn_fsync_flush_fn);
+
 /* Export buat dipanggil dari suspend.c */
 void dyn_fsync_suspend(void)
 {
-	mutex_lock(&fsync_mutex);
 	suspend_active = true;
-	mutex_unlock(&fsync_mutex);
 }
 EXPORT_SYMBOL(dyn_fsync_suspend);
 
 void dyn_fsync_resume(void)
 {
-	mutex_lock(&fsync_mutex);
 	suspend_active = false;
 	if (dyn_fsync_active)
-		dyn_fsync_force_flush();
-	mutex_unlock(&fsync_mutex);
+		schedule_work(&dyn_fsync_flush_work);
 }
 EXPORT_SYMBOL(dyn_fsync_resume);
 
@@ -90,15 +96,6 @@ static ssize_t dyn_fsync_suspend_show(struct kobject *kobj,
 	return sprintf(buf, "suspend active: %u\n", suspend_active);
 }
 
-static int dyn_fsync_panic_event(struct notifier_block *this,
-		unsigned long event, void *ptr)
-{
-	suspend_active = false;
-	dyn_fsync_force_flush();
-	pr_warn("dynamic fsync: panic - force flush!\n");
-	return NOTIFY_DONE;
-}
-
 static int dyn_fsync_notify_sys(struct notifier_block *this, unsigned long code,
 				void *unused)
 {
@@ -113,11 +110,6 @@ static int dyn_fsync_notify_sys(struct notifier_block *this, unsigned long code,
 
 static struct notifier_block dyn_fsync_notifier = {
 	.notifier_call = dyn_fsync_notify_sys,
-};
-
-static struct notifier_block dyn_fsync_panic_block = {
-	.notifier_call = dyn_fsync_panic_event,
-	.priority = INT_MAX,
 };
 
 static struct kobj_attribute dyn_fsync_active_attribute =
@@ -148,10 +140,6 @@ static int __init dyn_fsync_init(void)
 {
 	int sysfs_result;
 
-	register_reboot_notifier(&dyn_fsync_notifier);
-	atomic_notifier_chain_register(&panic_notifier_list,
-		&dyn_fsync_panic_block);
-
 	dyn_fsync_kobj = kobject_create_and_add("dyn_fsync", kernel_kobj);
 	if (!dyn_fsync_kobj) {
 		pr_err("%s dyn_fsync_kobj create failed!\n", __func__);
@@ -163,17 +151,19 @@ static int __init dyn_fsync_init(void)
 	if (sysfs_result) {
 		pr_err("%s dyn_fsync sysfs create failed!\n", __func__);
 		kobject_put(dyn_fsync_kobj);
+		return sysfs_result;
 	}
 
+	register_reboot_notifier(&dyn_fsync_notifier);
+
 	pr_info("%s dynamic fsync initialisation complete\n", __func__);
-	return sysfs_result;
+	return 0;
 }
 
 static void __exit dyn_fsync_exit(void)
 {
 	unregister_reboot_notifier(&dyn_fsync_notifier);
-	atomic_notifier_chain_unregister(&panic_notifier_list,
-		&dyn_fsync_panic_block);
+	cancel_work_sync(&dyn_fsync_flush_work);
 	if (dyn_fsync_kobj != NULL)
 		kobject_put(dyn_fsync_kobj);
 	pr_info("%s dynamic fsync unregistration complete\n", __func__);
