@@ -432,7 +432,7 @@ SYSCALL_DEFINE4(sync_file_range2, int, fd, unsigned int, flags,
 				 loff_t, offset, loff_t, nbytes)
 {
 	return ksys_sync_file_range(fd, offset, nbytes, flags);
-}
+
 #ifdef CONFIG_DYNAMIC_FSYNC
 	if (dyn_fsync_active && suspend_active)
 		return 0;
