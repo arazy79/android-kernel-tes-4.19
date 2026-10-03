@@ -51,6 +51,11 @@ static DEFINE_SPINLOCK(suspend_lock);
 #define TZ_V2_UPDATE_WITH_CA_ID_64 0xD
 
 #define TAG "msm_adreno_tz: "
+#ifdef CONFIG_FB_MSM_MDSS_CUSTOM_FRAMERATE
+extern unsigned int refresh_rate_cus;
+#else
+static const unsigned int refresh_rate_cus = 60;
+#endif
 
 #if 1
 static unsigned int adrenoboost = 0;
@@ -444,7 +449,6 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq)
 	int val, level = 0;
 	unsigned int scm_data[4];
 	int context_count = 0;
-	extern int refresh_rate_cus;
 #if 1
 	int last_level = priv->bin.last_level;
 //	int max_state_val = devfreq->profile->max_state - 1;
