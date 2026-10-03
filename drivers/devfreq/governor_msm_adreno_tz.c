@@ -12,7 +12,6 @@
 #include <linux/ftrace.h>
 #include <linux/mm.h>
 #include <linux/msm_adreno_devfreq.h>
-#include <linux/state_notifier.h>
 #include <asm/cacheflush.h>
 #include <soc/qcom/scm.h>
 #include <soc/qcom/qtee_shmbridge.h>
@@ -467,10 +466,11 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq)
 	*freq = stats->current_frequency;
 
 	/*
-	 * Force to use & record as min freq when system has
-	 * entered pm-suspend or screen-off state.
+	 * Force to use & record as min freq when GPU has
+	 * entered suspend. (state_suspended / state_notifier check
+	 * removed - not available in this kernel.)
 	 */
-	if (suspended || state_suspended) {
+	if (suspended) {
 		*freq = devfreq->profile->freq_table[devfreq->profile->max_state - 1];
 		return 0;
 	}
