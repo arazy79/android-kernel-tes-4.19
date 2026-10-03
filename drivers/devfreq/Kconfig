@@ -140,6 +140,18 @@ config DEVFREQ_GOV_QCOM_ADRENO_TZ
 	   governor is unlikely to be useful for other
 	   devices.
 
+config SIMPLE_GPU_ALGORITHM
+	bool "Simple GPU algorithm"
+	depends on DEVFREQ_GOV_QCOM_ADRENO_TZ
+	help
+	  Simple GPU algorithm to reduce GPU frequency scaling overhead.
+
+config ADRENO_IDLER
+	bool "Adreno idler"
+	depends on DEVFREQ_GOV_QCOM_ADRENO_TZ
+	help
+	  Idling algorithm for Adreno GPU to reduce power consumption.
+
 config DEVFREQ_GOV_QCOM_GPUBW_MON
 	tristate "GPU BW voting governor"
 	depends on DEVFREQ_GOV_QCOM_ADRENO_TZ
