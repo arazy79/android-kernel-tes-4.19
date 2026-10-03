@@ -28,3 +28,5 @@ obj-$(CONFIG_DEVFREQ_GOV_STATICMAP)	+= governor_staticmap.o
 
 # DEVFREQ Event Drivers
 obj-$(CONFIG_PM_DEVFREQ_EVENT)		+= event/
+obj-$(CONFIG_SIMPLE_GPU_ALGORITHM) += simple_gpu_algorithm.o
+obj-$(CONFIG_ADRENO_IDLER) += adreno_idler.o
