@@ -35,6 +35,12 @@
 
 #include "power.h"
 
+#ifdef CONFIG_DYNAMIC_FSYNC
+#include <linux/dyn_sync_cntrl.h>
+extern void dyn_fsync_suspend(void);
+extern void dyn_fsync_resume(void);
+#endif
+
 #undef trace_suspend_resume
 #define trace_suspend_resume(x, ...)
 
@@ -450,6 +456,9 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		goto Enable_cpus;
 	}
 
+#ifdef CONFIG_DYNAMIC_FSYNC
+	dyn_fsync_suspend();
+#endif
 	arch_suspend_disable_irqs();
 	BUG_ON(!irqs_disabled());
 
@@ -473,6 +482,9 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	system_state = SYSTEM_RUNNING;
 
 	arch_suspend_enable_irqs();
+#ifdef CONFIG_DYNAMIC_FSYNC
+	dyn_fsync_resume();
+#endif
 	BUG_ON(irqs_disabled());
 
  Enable_cpus:
