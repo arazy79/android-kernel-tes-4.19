@@ -132,7 +132,15 @@ static void devfreq_max_unboost(struct work_struct *work)
 
 static void devfreq_update_boosts(struct boost_dev *b, unsigned long state)
 {
-	struct devfreq *df = b->df;
+	struct devfreq *df = READ_ONCE(b->df);
+
+	/*
+	 * This device was never registered with devfreq_register_boost_device()
+	 * (or the registering hunk is missing in this tree): nothing to boost.
+	 * Without this check the screen-off event below dereferences NULL.
+	 */
+	if (unlikely(!df))
+		return;
 
 	mutex_lock(&df->lock);
 	if (test_bit(SCREEN_OFF, &state)) {
@@ -196,7 +204,9 @@ static int fb_notifier_cb(struct notifier_block *nb, unsigned long action,
 				CONFIG_DEVFREQ_WAKE_BOOST_DURATION_MS);
 		} else {
 			set_bit(SCREEN_OFF, &b->state);
-			wake_up(&b->boost_waitq);
+			/* Only wake the thread if a device is registered */
+			if (READ_ONCE(b->df))
+				wake_up(&b->boost_waitq);
 		}
 	}
 
