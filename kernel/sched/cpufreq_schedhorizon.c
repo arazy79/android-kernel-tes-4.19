@@ -17,6 +17,16 @@
 #include <trace/events/power.h>
 #include <linux/sched/sysctl.h>
 
+/*
+ * Private copy of the util type enum. enum schedutil_type is not visible
+ * in this tree's sched.h (depends on CONFIG_CPU_FREQ_GOV_SCHEDUTIL), so we
+ * use our own names to avoid any dependency / redefinition.
+ */
+enum schedhorizon_util_type {
+	SH_FREQUENCY_UTIL,
+	SH_ENERGY_UTIL,
+};
+
 static unsigned int default_efficient_freq_lp[] = {0};
 static u64 default_up_delay_lp[] = {0};
 
@@ -69,8 +79,6 @@ struct sugov_cpu {
 
 	u64			last_update;
 
-	struct sched_walt_cpu_load walt_load;
-
 	unsigned long util;
 	unsigned int flags;
 
@@ -85,7 +93,6 @@ struct sugov_cpu {
 };
 
 static DEFINE_PER_CPU(struct sugov_cpu, sugov_cpu);
-static unsigned int stale_ns;
 static DEFINE_PER_CPU(struct sugov_tunables *, cached_tunables);
 
 /************************ Governor internals ***********************/
@@ -128,13 +135,10 @@ static bool sugov_should_update_freq(struct sugov_policy *sg_policy, u64 time)
 	return delta_ns >= sg_policy->min_rate_limit_ns;
 }
 
+/* This tree is PELT-only (no WALT). */
 static inline bool use_pelt(void)
 {
-#ifdef CONFIG_SCHED_WALT
-	return false;
-#else
 	return true;
-#endif
 }
 
 static inline int match_nearest_efficient_step(int freq, int maxstep, int *freq_table)
@@ -304,14 +308,14 @@ schedtune_cpu_margin_with(unsigned long util, int cpu, struct task_struct *p);
  * required to meet deadlines.
  */
 unsigned long schedhorizon_cpu_util(int cpu, unsigned long util_cfs,
-				 unsigned long max, enum schedutil_type type,
+				 unsigned long max, enum schedhorizon_util_type type,
 				 struct task_struct *p)
 {
 	unsigned long dl_util, util, irq;
 	struct rq *rq = cpu_rq(cpu);
 
 	if (sched_feat(SUGOV_RT_MAX_FREQ) && !IS_BUILTIN(CONFIG_UCLAMP_TASK) &&
-	    type == FREQUENCY_UTIL && rt_rq_is_runnable(&rq->rt)) {
+	    type == SH_FREQUENCY_UTIL && rt_rq_is_runnable(&rq->rt)) {
 		return max;
 	}
 
@@ -337,7 +341,7 @@ unsigned long schedhorizon_cpu_util(int cpu, unsigned long util_cfs,
 	 * frequency will be gracefully reduced with the utilization decay.
 	 */
 	util = util_cfs + cpu_util_rt(rq);
-	if (type == FREQUENCY_UTIL)
+	if (type == SH_FREQUENCY_UTIL)
 #ifdef CONFIG_SCHED_TUNE
 		util += schedtune_cpu_margin_with(util, cpu, p);
 #else
@@ -362,7 +366,7 @@ unsigned long schedhorizon_cpu_util(int cpu, unsigned long util_cfs,
 	 * OTOH, for energy computation we need the estimated running time, so
 	 * include util_dl and ignore dl_bw.
 	 */
-	if (type == ENERGY_UTIL)
+	if (type == SH_ENERGY_UTIL)
 		util += dl_util;
 
 	/*
@@ -387,24 +391,12 @@ unsigned long schedhorizon_cpu_util(int cpu, unsigned long util_cfs,
 	 * bw_dl as requested freq. However, cpufreq is not yet ready for such
 	 * an interface. So, we only do the latter for now.
 	 */
-	if (type == FREQUENCY_UTIL)
+	if (type == SH_FREQUENCY_UTIL)
 		util += cpu_bw_dl(rq);
 
 	return min(max, util);
 }
 
-#ifdef CONFIG_SCHED_WALT
-static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
-{
-	struct rq *rq = cpu_rq(sg_cpu->cpu);
-	unsigned long max = arch_scale_cpu_capacity(sg_cpu->cpu);
-
-	sg_cpu->max = max;
-	sg_cpu->bw_dl = cpu_bw_dl(rq);
-
-	return stune_util(sg_cpu->cpu, 0, &sg_cpu->walt_load);
-}
-#else
 static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 {
 	struct rq *rq = cpu_rq(sg_cpu->cpu);
@@ -416,9 +408,8 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 	sg_cpu->bw_dl = cpu_bw_dl(rq);
 
 	return schedhorizon_cpu_util(sg_cpu->cpu, util_cfs, max,
-				  FREQUENCY_UTIL, NULL);
+				  SH_FREQUENCY_UTIL, NULL);
 }
-#endif
 
 #ifdef CONFIG_NO_HZ_COMMON
 static bool sugov_cpu_is_busy(struct sugov_cpu *sg_cpu)
@@ -586,6 +577,8 @@ static unsigned int *resolve_data_freq (const char *buf, int *num_ret,size_t cou
 		num++;
 
 	output = kmalloc(num * sizeof(unsigned int), GFP_KERNEL);
+	if (!output)
+		return NULL;
 
 	cp = buf;
 	i = 0;
@@ -613,21 +606,20 @@ static u64 *resolve_data_delay (const char *buf, int *num_ret,size_t count)
 	const char *cp;
 	u64 *output;
 	int num = 1, i;
-	pr_err("Started");
 
 	cp = buf;
 	while ((cp = strpbrk(cp + 1, " ")))
 		num++;
 
 	output = kzalloc(num * sizeof(u64), GFP_KERNEL);
-	
+	if (!output)
+		return NULL;
+
 	cp = buf;
 	i = 0;
-	pr_err("Before while");
 	while (i < num && cp-buf < count) {
 		if (sscanf(cp, "%llu", &output[i]) == 1) {
 			output[i] = output[i] * NSEC_PER_MSEC;
-			pr_info("Got: %llu", output[i]);
 			i++;
 		} else {
 			goto err_kfree;
@@ -731,7 +723,7 @@ static ssize_t efficient_freq_show(struct gov_attr_set *attr_set, char *buf)
 	ssize_t ret = 0;
 
 	for (i = 0; i < tunables->nefficient_freq; i++)
-		ret += sprintf(buf + ret, "%llu%s", tunables->efficient_freq[i], " ");
+		ret += sprintf(buf + ret, "%u%s", tunables->efficient_freq[i], " ");
 
 	sprintf(buf + ret - 1, "\n");
 
@@ -745,7 +737,7 @@ static ssize_t up_delay_show(struct gov_attr_set *attr_set, char *buf)
 	ssize_t ret = 0;
 
 	for (i = 0; i < tunables->nup_delay; i++)
-		ret += sprintf(buf + ret, "%u%s", tunables->up_delay[i] / NSEC_PER_MSEC, " ");
+		ret += sprintf(buf + ret, "%llu%s", tunables->up_delay[i] / NSEC_PER_MSEC, " ");
 
 	sprintf(buf + ret - 1, "\n");
 
@@ -997,23 +989,26 @@ static int sugov_init(struct cpufreq_policy *policy)
 
 	tunables->up_rate_limit_us = cpufreq_policy_transition_delay_us(policy);
 	tunables->down_rate_limit_us = cpufreq_policy_transition_delay_us(policy);
-	
-	if (cpumask_test_cpu(sg_policy->policy->cpu, cpu_lp_mask)) {
+
+	/*
+	 * X00TD (4+4): cpu0-3 = little cluster, cpu4-7 = big cluster.
+	 * policy->cpu is the first CPU of the cluster (0 or 4).
+	 * (cpu_lp_mask / cpu_perf_mask don't exist in this tree.)
+	 */
+	if (sg_policy->policy->cpu < 4) {
 		tunables->efficient_freq = default_efficient_freq_lp;
-    		tunables->nefficient_freq = ARRAY_SIZE(default_efficient_freq_lp);
+		tunables->nefficient_freq = ARRAY_SIZE(default_efficient_freq_lp);
 		tunables->up_delay = default_up_delay_lp;
 		tunables->nup_delay = ARRAY_SIZE(default_up_delay_lp);
-	} else if (cpumask_test_cpu(sg_policy->policy->cpu, cpu_perf_mask)) {
+	} else {
 		tunables->efficient_freq = default_efficient_freq_hp;
-    		tunables->nefficient_freq = ARRAY_SIZE(default_efficient_freq_hp);
+		tunables->nefficient_freq = ARRAY_SIZE(default_efficient_freq_hp);
 		tunables->up_delay = default_up_delay_hp;
 		tunables->nup_delay = ARRAY_SIZE(default_up_delay_hp);
 	}
 
 	policy->governor_data = sg_policy;
 	sg_policy->tunables = tunables;
-
-	stale_ns = sched_ravg_window + (sched_ravg_window >> 3);
 
 	sugov_tunables_restore(policy);
 
