@@ -132,6 +132,7 @@ struct devfreq_dev_profile {
  * @scaling_max_freq:	Limit maximum frequency requested by OPP interface
  * @stop_polling:	 devfreq polling status of a device.
  * @is_boost_device:	true if min_freq is managed by devfreq_boost
+ * @max_boost:	true while devfreq_boost wants this device at max frequency
  * @total_trans:	Number of devfreq transitions
  * @trans_table:	Statistics of devfreq transitions
  * @time_in_state:	Statistics of devfreq states
@@ -169,6 +170,7 @@ struct devfreq {
 	unsigned long scaling_max_freq;
 	bool stop_polling;
 	bool is_boost_device;
+	bool max_boost;
 
 	/* information for device frequency transition */
 	unsigned int total_trans;
@@ -201,6 +203,9 @@ extern void devm_devfreq_remove_device(struct device *dev,
 /* Supposed to be called by PM callbacks */
 extern int devfreq_suspend_device(struct devfreq *devfreq);
 extern int devfreq_resume_device(struct devfreq *devfreq);
+
+/* Re-evaluate the target frequency now (used by devfreq_boost) */
+extern int update_devfreq(struct devfreq *devfreq);
 
 /* Helper functions for devfreq user device driver with OPP. */
 extern struct dev_pm_opp *devfreq_recommended_opp(struct device *dev,
