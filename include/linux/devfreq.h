@@ -131,6 +131,7 @@ struct devfreq_dev_profile {
  * @scaling_min_freq:	Limit minimum frequency requested by OPP interface
  * @scaling_max_freq:	Limit maximum frequency requested by OPP interface
  * @stop_polling:	 devfreq polling status of a device.
+ * @is_boost_device:	true if min_freq is managed by devfreq_boost
  * @total_trans:	Number of devfreq transitions
  * @trans_table:	Statistics of devfreq transitions
  * @time_in_state:	Statistics of devfreq states
@@ -167,6 +168,7 @@ struct devfreq {
 	unsigned long scaling_min_freq;
 	unsigned long scaling_max_freq;
 	bool stop_polling;
+	bool is_boost_device;
 
 	/* information for device frequency transition */
 	unsigned int total_trans;
