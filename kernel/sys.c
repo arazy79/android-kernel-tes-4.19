@@ -1274,6 +1274,12 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
+#ifndef CONFIG_FAKE_UNAME_NONE
+	if (unlikely(should_spoof_uname(current->comm))) {
+		strscpy(tmp.release, FAKE_UNAME, sizeof(tmp.release));
+		pr_info("fake uname: %s (pid=%d) release=%s\n", current->comm, current->pid, tmp.release);
+	}
+#endif
 	up_read(&uts_sem);
 	if (copy_to_user(name, &tmp, sizeof(tmp)))
 		return -EFAULT;
