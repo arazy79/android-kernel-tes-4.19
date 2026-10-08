@@ -20,6 +20,8 @@
 #include <linux/of_platform.h>
 #include "governor.h"
 
+int refresh_rate_cus = 65;
+
 // ===== PENGGANTI state_notifier MULAI =====
 // Variabel pengganti state_suspended dari state_notifier
 static bool state_suspended;
