@@ -1,9 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0-only
 /*
- * Auto-cut charging module for X00TD (4.19 final)
- * - INPUT_SUSPEND for real power cut
- * - USB plug-in detection: always resume on connect
- * - Hysteresis: stop at max, resume at min, do nothing in between
+ * Auto-cut charging module for X00TD
+ * Sysfs: /sys/module/autocut/parameters/max_soc
+ *        /sys/module/autocut/parameters/min_soc
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -12,74 +10,83 @@
 #include <linux/power_supply.h>
 
 static int max_soc = 100;
-static int min_soc = 90;
+static int min_soc = 70;
 module_param(max_soc, int, 0644);
 MODULE_PARM_DESC(max_soc, "Max SOC to stop charging (default 100)");
 module_param(min_soc, int, 0644);
 MODULE_PARM_DESC(min_soc, "Min SOC to resume charging (default 90)");
 
 static struct delayed_work autocut_work;
-static int last_usb_present = -1;
+static bool last_usb_present = false;
 
 static void autocut_work_fn(struct work_struct *work)
 {
-	struct power_supply *batt_psy, *usb_psy;
+	struct power_supply *psy_batt, *psy_usb;
 	union power_supply_propval val;
-	int ret, capacity, usb_present = 0;
+	int ret, capacity, charging;
+	bool usb_present = false;
 
-	/* Check USB present */
-	usb_psy = power_supply_get_by_name("usb");
-	if (usb_psy) {
-		ret = power_supply_get_property(usb_psy, POWER_SUPPLY_PROP_PRESENT, &val);
+	/* Cek apakah charger/USB nyolok */
+	psy_usb = power_supply_get_by_name("usb");
+	if (psy_usb) {
+		ret = power_supply_get_property(psy_usb, POWER_SUPPLY_PROP_PRESENT, &val);
 		if (!ret)
 			usb_present = val.intval;
-		power_supply_put(usb_psy);
-	} else {
-		usb_present = last_usb_present > 0 ? 1 : 0;
+		power_supply_put(psy_usb);
 	}
 
-	batt_psy = power_supply_get_by_name("battery");
-	if (!batt_psy)
+	/* Ambil battery power supply */
+	psy_batt = power_supply_get_by_name("battery");
+	if (!psy_batt)
 		goto reschedule;
 
-	ret = power_supply_get_property(batt_psy, POWER_SUPPLY_PROP_CAPACITY, &val);
-	if (ret) {
-		power_supply_put(batt_psy);
-		goto reschedule;
-	}
+	/* Baca capacity */
+	ret = power_supply_get_property(psy_batt, POWER_SUPPLY_PROP_CAPACITY, &val);
+	if (ret)
+		goto put_batt;
 	capacity = val.intval;
 
-	/* Charger just plugged in: always allow charging first */
-	if (usb_present == 1 && last_usb_present != 1) {
-		val.intval = 0;
-		power_supply_set_property(batt_psy, POWER_SUPPLY_PROP_INPUT_SUSPEND, &val);
-		pr_info("autocut: charger plugged, force resume (soc=%d)\n", capacity);
-	}
-	/* Charger connected: apply SOC thresholds only */
-	else if (usb_present == 1) {
-		if (capacity >= max_soc) {
-			val.intval = 1;
-			power_supply_set_property(batt_psy, POWER_SUPPLY_PROP_INPUT_SUSPEND, &val);
-			pr_info("autocut: charging STOPPED at %d%% (max=%d)\n", capacity, max_soc);
-		} else if (capacity <= min_soc) {
+	/* Baca status charging_enabled */
+	ret = power_supply_get_property(psy_batt, POWER_SUPPLY_PROP_INPUT_SUSPEND, &val);
+	if (ret)
+		goto put_batt;
+	charging = val.intval;
+
+	if (usb_present) {
+		if (capacity >= max_soc && charging) {
+			/* Nyampe max → STOP */
 			val.intval = 0;
-			power_supply_set_property(batt_psy, POWER_SUPPLY_PROP_INPUT_SUSPEND, &val);
-			pr_info("autocut: charging RESUMED at %d%% (min=%d)\n", capacity, min_soc);
+			power_supply_set_property(psy_batt, POWER_SUPPLY_PROP_INPUT_SUSPEND, &val);
+			pr_info("autocut: charging STOPPED at %d%% (max=%d)\n", capacity, max_soc);
+
+		} else if (!charging && capacity < max_soc) {
+			/* Charger nyolok tapi charging mati.
+			 * Resume kalau:
+			 * 1. Baterai turun ke min_soc (charger nyolok terus), ATAU
+			 * 2. Charger BARU dicolok (bypass min_soc)
+			 */
+			if (capacity <= min_soc || !last_usb_present) {
+				val.intval = 1;
+				power_supply_set_property(psy_batt, POWER_SUPPLY_PROP_INPUT_SUSPEND, &val);
+				pr_info("autocut: charging RESUMED at %d%% (reason=%s)\n",
+					capacity,
+					!last_usb_present ? "reconnect" : "min_soc");
+			}
 		}
-		/* else: between min and max, do nothing (keep current state) */
 	}
 
 	last_usb_present = usb_present;
-	power_supply_put(batt_psy);
 
+put_batt:
+	power_supply_put(psy_batt);
 reschedule:
-	schedule_delayed_work(&autocut_work, msecs_to_jiffies(3000));
+	schedule_delayed_work(&autocut_work, msecs_to_jiffies(1000));
 }
 
 static int __init autocut_init(void)
 {
 	INIT_DELAYED_WORK(&autocut_work, autocut_work_fn);
-	schedule_delayed_work(&autocut_work, msecs_to_jiffies(3000));
+	schedule_delayed_work(&autocut_work, msecs_to_jiffies(1000));
 	pr_info("autocut: loaded (max_soc=%d, min_soc=%d)\n", max_soc, min_soc);
 	return 0;
 }
@@ -94,5 +101,5 @@ module_init(autocut_init);
 module_exit(autocut_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Auto-cut charging with plug-in resume support");
+MODULE_DESCRIPTION("Auto-cut charging with configurable SOC thresholds");
 MODULE_AUTHOR("X00TD Porter");
