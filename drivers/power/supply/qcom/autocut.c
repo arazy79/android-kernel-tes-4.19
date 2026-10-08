@@ -14,7 +14,7 @@ static int min_soc = 70;
 module_param(max_soc, int, 0644);
 MODULE_PARM_DESC(max_soc, "Max SOC to stop charging (default 100)");
 module_param(min_soc, int, 0644);
-MODULE_PARM_DESC(min_soc, "Min SOC to resume charging (default 90)");
+MODULE_PARM_DESC(min_soc, "Min SOC to resume charging (default 70)");
 
 static struct delayed_work autocut_work;
 static bool last_usb_present = false;
