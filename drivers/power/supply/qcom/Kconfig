@@ -175,4 +175,12 @@ config SMB1398_CHARGER
 	      wireless charger receiver and provide the input for downstream
 	      chargers.
 
+config CHARGING_AUTOCUT
+	bool "Auto-cut charging support"
+	depends on QPNP_SMB2
+	default y
+	help
+	  Enables automatic charging stop/resume based on configurable
+	  SOC thresholds via /sys/module/autocut/parameters/
+
 endmenu
