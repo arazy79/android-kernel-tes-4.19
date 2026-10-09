@@ -92,6 +92,8 @@ struct kgsl_pwrscale {
 	bool ctxt_aware_enable;
 	unsigned int ctxt_aware_target_pwrlevel;
 	unsigned int ctxt_aware_busy_penalty;
+	int popp_level;
+	unsigned long popp_state;
 };
 
 int kgsl_pwrscale_init(struct device *dev, const char *governor);
