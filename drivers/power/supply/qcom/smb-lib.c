@@ -875,6 +875,18 @@ static void smblib_uusb_removal(struct smb_charger *chg)
 	if (rc < 0)
 		smblib_err(chg,
 			"Couldn't un-vote DCP from USB ICL rc=%d\n", rc);
+	
+#ifdef CONFIG_MACH_ASUS_SDM660
+/* Huaqin add for ZQL1650-68 Realize jeita function by fangaijun at 2018/02/03 start */
+
+	cancel_delayed_work(&chg->asus_min_monitor_work);
+	cancel_delayed_work(&chg->asus_batt_RTC_work);
+	alarm_cancel(&bat_alarm);
+	asus_flow_processing = 0;
+	asus_smblib_relax(smbchg_dev);
+	printk("%s: Charger removed \n", __func__);
+/* Huaqin add for ZQL1650-68 Realize jeita function by fangaijun at 2018/02/03 end */
+#endif /* CONFIG_MACH_ASUS_SDM660 */
 }
 
 void smblib_suspend_on_debug_battery(struct smb_charger *chg)
@@ -1877,6 +1889,15 @@ static int _smblib_vbus_regulator_disable(struct regulator_dev *rdev)
 	}
 
 	smblib_dbg(chg, PR_OTG, "start 1 in 8 mode\n");
+
+#ifdef CONFIG_MACH_ASUS_SDM660
+	/* USB alert */
+	cancel_delayed_work(&chg->asus_min_monitor_work);
+	cancel_delayed_work(&chg->asus_batt_RTC_work);
+	alarm_cancel(&bat_alarm);
+	asus_smblib_relax(smbchg_dev);
+#endif
+
 	rc = smblib_masked_write(chg, OTG_ENG_OTG_CFG_REG,
 				 ENG_BUCKBOOST_HALT1_8_MODE_BIT, 0);
 	if (rc < 0) {
