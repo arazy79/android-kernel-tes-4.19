@@ -67,9 +67,9 @@ module_param(const_icl_enable, bool, 0644);
 #define printk(...)  printk(KERN_ERR CHARGER_TAG __VA_ARGS__)
 #define CHG_DBG(...)  printk(KERN_ERR CHARGER_TAG __VA_ARGS__)
 #define CHG_DBG_E(...)  printk(KERN_ERR CHARGER_TAG ERROR_TAG __VA_ARGS__)
-extern struct smb_charger *smbchg_dev;
+struct smb_charger *smbchg_dev;
 /* Per min system suspend sw jeita */
-extern struct timespec last_jeita_time;
+struct timespec last_jeita_time;
 static struct alarm bat_alarm;
 void smblib_asus_monitor_start(struct smb_charger *chg, int time);
 
@@ -98,10 +98,13 @@ static void asus_smblib_rerun_aicl(struct smb_charger *chg)
 	smblib_masked_write(chg, USBIN_AICL_OPTIONS_CFG_REG,                          //reg=1380   bit2=0     USBIN_AICL_EN=Enable
 			USBIN_AICL_EN_BIT, USBIN_AICL_EN_BIT);
 }
-extern struct wakeup_source *asus_chg_lock;
 void asus_smblib_stay_awake(struct smb_charger *chg)
 {
-	__pm_stay_awake(asus_chg_lock);
+	pm_stay_awake(chg->dev);
+}
+void asus_smblib_relax(struct smb_charger *chg)
+{
+	pm_relax(chg->dev);
 }
 void asus_smblib_relax(struct smb_charger *chg)
 {
@@ -6383,7 +6386,7 @@ static void smblib_iio_deinit(struct smb_charger *chg)
 int smblib_init(struct smb_charger *chg)
 {
 	int rc = 0;
-
+	smbchg_dev = chg;
 	mutex_init(&chg->lock);
 	mutex_init(&chg->write_lock);
 	mutex_init(&chg->otg_oc_lock);
