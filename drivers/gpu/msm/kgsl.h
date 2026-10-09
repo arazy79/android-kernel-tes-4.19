@@ -94,6 +94,7 @@ static inline void KGSL_STATS_ADD(uint64_t size, atomic_long_t *stat,
 #define KGSL_MAX_NUMIBS 100000
 #define KGSL_MAX_SYNCPOINTS 32
 #define KGSL_MAX_SPARSE 1000
+#define POPP_ON 0
 
 struct kgsl_device;
 struct kgsl_context;
@@ -485,6 +486,7 @@ void kgsl_mmu_add_global(struct kgsl_device *device,
 	struct kgsl_memdesc *memdesc, const char *name);
 void kgsl_mmu_remove_global(struct kgsl_device *device,
 		struct kgsl_memdesc *memdesc);
+bool kgsl_popp_check(struct kgsl_device *device);
 
 /* Helper functions */
 unsigned long kgsl_get_align(struct kgsl_memdesc *memdesc);
