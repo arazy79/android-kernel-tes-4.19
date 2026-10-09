@@ -1,4 +1,4 @@
-name: Create New Branch
+name: Create New Branch (Custom Source)
 
 on:
   workflow_dispatch:
@@ -8,12 +8,16 @@ on:
         required: true
         type: boolean
         default: false
+      source_branch:
+        description: 'Nama branch SUMBER yang mau di-copy (misal: lineage-23.2 atau fastcharge-test)'
+        required: false
+        type: string
+        default: 'lineage-23.2'
       branch_name:
-        description: 'Ketik nama branch baru di sini (Empty Field)'
+        description: 'Nama branch BARU yang akan dibuat (Empty Field)'
         required: false
         type: string
 
-# Izin agar GitHub Actions bisa push branch ke repository
 permissions:
   contents: write
 
@@ -24,17 +28,24 @@ jobs:
       - name: Validasi Input
         if: inputs.confirm_create == true && inputs.branch_name != ''
         run: |
+          # Cek spasi di nama branch baru
           if [[ "${{ inputs.branch_name }}" == *" "* ]]; then
-            echo "❌ Error: Nama branch tidak boleh mengandung spasi!"
+            echo "❌ Error: Nama branch baru tidak boleh mengandung spasi!"
             exit 1
           fi
-          echo "✅ Input valid. Siap membuat branch: ${{ inputs.branch_name }}"
+          # Cek spasi di nama branch sumber
+          if [[ "${{ inputs.source_branch }}" == *" "* ]]; then
+            echo "❌ Error: Nama branch sumber tidak boleh mengandung spasi!"
+            exit 1
+          fi
+          echo "✅ Input valid. Siap membuat branch '${{ inputs.branch_name }}' dari sumber '${{ inputs.source_branch || 'lineage-23.2' }}'"
 
-      - name: Checkout Repository
+      - name: Checkout Source Branch
         if: inputs.confirm_create == true && inputs.branch_name != ''
         uses: actions/checkout@v4
         with:
-          ref: lineage-23.2 # Base branch sesuai URL yang kamu berikan
+          # Ambil dari input source_branch, kalau kosong fallback ke lineage-23.2
+          ref: ${{ inputs.source_branch || 'lineage-23.2' }}
           fetch-depth: 0
 
       - name: Konfigurasi Git
@@ -46,13 +57,16 @@ jobs:
       - name: Buat dan Push Branch Baru
         if: inputs.confirm_create == true && inputs.branch_name != ''
         run: |
-          echo "🚀 Sedang membuat branch: ${{ inputs.branch_name }}"
-          git checkout -b "${{ inputs.branch_name }}"
-          git push -u origin "${{ inputs.branch_name }}"
-          echo "✅ Sukses! Branch '${{ inputs.branch_name }}' telah dibuat dari lineage-23.2"
+          SOURCE=${{ inputs.source_branch || 'lineage-23.2' }}
+          TARGET=${{ inputs.branch_name }}
+          
+          echo "🚀 Sedang membuat branch: $TARGET dari base: $SOURCE"
+          git checkout -b "$TARGET"
+          git push -u origin "$TARGET"
+          echo "✅ Sukses! Branch '$TARGET' telah dibuat dari '$SOURCE'"
 
       - name: Info Pembatalan
         if: inputs.confirm_create == false || inputs.branch_name == ''
         run: |
           echo "⚠️ Pembuatan branch dilewati."
-          echo "Pastikan kamu mencentang 'confirm_create' (Boolean) dan mengisi 'branch_name' (Empty Field)."
+          echo "Pastikan kamu mencentang konfirmasi dan mengisi nama branch baru."
