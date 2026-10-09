@@ -1,0 +1,58 @@
+name: Create New Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_create:
+        description: 'Centang untuk mengaktifkan pembuatan branch (Boolean)'
+        required: true
+        type: boolean
+        default: false
+      branch_name:
+        description: 'Ketik nama branch baru di sini (Empty Field)'
+        required: false
+        type: string
+
+# Izin agar GitHub Actions bisa push branch ke repository
+permissions:
+  contents: write
+
+jobs:
+  create-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validasi Input
+        if: inputs.confirm_create == true && inputs.branch_name != ''
+        run: |
+          if [[ "${{ inputs.branch_name }}" == *" "* ]]; then
+            echo "❌ Error: Nama branch tidak boleh mengandung spasi!"
+            exit 1
+          fi
+          echo "✅ Input valid. Siap membuat branch: ${{ inputs.branch_name }}"
+
+      - name: Checkout Repository
+        if: inputs.confirm_create == true && inputs.branch_name != ''
+        uses: actions/checkout@v4
+        with:
+          ref: lineage-23.2 # Base branch sesuai URL yang kamu berikan
+          fetch-depth: 0
+
+      - name: Konfigurasi Git
+        if: inputs.confirm_create == true && inputs.branch_name != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Buat dan Push Branch Baru
+        if: inputs.confirm_create == true && inputs.branch_name != ''
+        run: |
+          echo "🚀 Sedang membuat branch: ${{ inputs.branch_name }}"
+          git checkout -b "${{ inputs.branch_name }}"
+          git push -u origin "${{ inputs.branch_name }}"
+          echo "✅ Sukses! Branch '${{ inputs.branch_name }}' telah dibuat dari lineage-23.2"
+
+      - name: Info Pembatalan
+        if: inputs.confirm_create == false || inputs.branch_name == ''
+        run: |
+          echo "⚠️ Pembuatan branch dilewati."
+          echo "Pastikan kamu mencentang 'confirm_create' (Boolean) dan mengisi 'branch_name' (Empty Field)."
