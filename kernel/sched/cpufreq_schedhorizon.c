@@ -82,17 +82,19 @@ static DEFINE_PER_CPU(struct sugov_tunables *, cached_tunables);
 /* Inisialisasi mask cluster — sesuaikan CPU-nya! */
 static void __init schedhorizon_init_masks(void)
 {
-	cpumask_clear(&cpu_lp_mask);
-	cpumask_clear(&cpu_perf_mask);
+    cpumask_clear(&cpu_lp_mask);
+    cpumask_clear(&cpu_perf_mask);
 
-	/* === SESUAIKAN DENGAN CHIP KAMU ===
-	 * Contoh umum 4-core: CPU 0-1 = LP, 2-3 = HP
-	 * 8-core: CPU 0-3 = LP, 4-7 = HP
-	 */
-	cpumask_set_cpu(0, &cpu_lp_mask);
-	cpumask_set_cpu(1, &cpu_lp_mask);
-	cpumask_set_cpu(2, &cpu_perf_mask);
-	cpumask_set_cpu(3, &cpu_perf_mask);
+    /* === 8-CORE: CPU 0-3 = Little / LP, CPU 4-7 = Big / Perf === */
+    cpumask_set_cpu(0, &cpu_lp_mask);
+    cpumask_set_cpu(1, &cpu_lp_mask);
+    cpumask_set_cpu(2, &cpu_lp_mask);
+    cpumask_set_cpu(3, &cpu_lp_mask);
+    
+    cpumask_set_cpu(4, &cpu_perf_mask);
+    cpumask_set_cpu(5, &cpu_perf_mask);
+    cpumask_set_cpu(6, &cpu_perf_mask);
+    cpumask_set_cpu(7, &cpu_perf_mask);
 }
 
 /************************ Governor internals ***********************/
