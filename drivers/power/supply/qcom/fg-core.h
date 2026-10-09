@@ -60,7 +60,9 @@
 #define PROFILE_LOAD		"fg_profile_load"
 #define TTF_PRIMING		"fg_ttf_priming"
 #define ESR_CALIB		"fg_esr_calib"
+#ifndef FG_ESR_VOTER
 #define FG_ESR_VOTER		"fg_esr_voter"
+#endif
 
 /* Delta BSOC irq votable reasons */
 #define DELTA_BSOC_IRQ_VOTER	"fg_delta_bsoc_irq"
@@ -76,7 +78,9 @@
 #define FG_PARALLEL_EN_VOTER	"fg_parallel_en"
 #define MEM_ATTN_IRQ_VOTER	"fg_mem_attn_irq"
 
+#ifndef DEBUG_BOARD_VOTER
 #define DEBUG_BOARD_VOTER	"fg_debug_board"
+#endif
 
 #define BUCKET_COUNT			8
 #define BUCKET_SOC_PCT			(256 / BUCKET_COUNT)
