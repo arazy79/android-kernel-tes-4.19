@@ -1151,10 +1151,12 @@ static int smb2_batt_get_prop(struct power_supply *psy,
 		val->intval = get_client_vote(chg->fcc_votable,
 					      BATT_PROFILE_VOTER);
 		break;
+#ifndef CONFIG_MACH_ASUS_SDM660
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
 		val->intval = get_client_vote(chg->fcc_votable,
 					      FG_ESR_VOTER);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 #ifdef CONFIG_MACH_ASUS_SDM660
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LIPO;
@@ -1287,12 +1289,14 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 		chg->batt_profile_fcc_ua = val->intval;
 		vote(chg->fcc_votable, BATT_PROFILE_VOTER, true, val->intval);
 		break;
+#ifndef CONFIG_MACH_ASUS_SDM660
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
 		if (val->intval)
 			vote(chg->fcc_votable, FG_ESR_VOTER, true, val->intval);
 		else
 			vote(chg->fcc_votable, FG_ESR_VOTER, false, 0);
 		break;
+#endif
 	case POWER_SUPPLY_PROP_SET_SHIP_MODE:
 		/* Not in ship mode as long as the device is active */
 		if (!val->intval)
