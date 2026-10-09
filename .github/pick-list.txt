@@ -1,1 +1,82 @@
 drivers: misc: implement usb fast charge mode
+power: supply: qpnp-fg-gen3: 1000mA minimum charging to 90%
+power: supply: qpnp-fg-gen3: force setting warm/hot jeita threshold as 97C
+arm64: boot: dts: ASUS: Set fcc-max-ua value to 2300
+power: supply: Classify Battery Monitor Systems as batteries
+power: supply: smb-lib: Explicitly mark *chg variable as unused
+power: supply: qpnp-fg-gen3: Expose property online status
+power: supply: smb-lib: use USB options in low ICL range
+power: supply: smb1351-charger: Fix the float voltage unit passed to its set method
+power: supply: smb1351: add MODEL_NAME property in parallel power_supply
+power: supply: smb1351: Fix parallel ICL configuration
+power: supply: smb1351-charger: Disable parallel charging in shutdown path
+power: supply: smb1351-charger: Fix check in shutdown path for parallel disable
+power: supply: qpnp-smb2: Configure AICL rerun to be enabled
+power: supply: qpnp-smb2: Clear HDC AICL
+power: supply: qpnp-smb2: Fix usbin suspend when vbus up 5v->4V->5V
+power: supply: step-chg-jeita: faster charging info on lock screen
+power: supply: smb-lib: Charging hax
+power: supply: smb-lib: Use 0xF9 for Float Voltage
+Revert "power: supply: qpnp-fg-gen3: 1000mA minimum charging to 90%"
+Revert "power: supply: smb-lib: use USB options in low ICL range"
+power: supply: smb1351-charger: Increase the current slightly
+arm64: boot: dts, power: Charging code revise
+arm64: boot: dts: ASUS: Increase max charge current & further jeita voltage ranges()
+power: supply: smb-lib: add icl_settled for fcc/icl
+power: supply: smb-lib: add parameter to force charging current
+power: supply: smb-lib: set default CONST_ICL_UA to 2500000
+power: supply: smb-lib: set default forced_current to 2500 mA
+arm64: configs: asus: Disable CONFIG_SMB1351_USB_CHARGER
+power: supply: smb-lib: disable THERMAL_DAEMON_VOTER if CONFIG_FORCE_FAST_CHARGE=y
+power: supply: smb-lib: fix INPUT_CURRENT_SETTLED constantly showing 2500000
+power: supply: smb-lib: add ICL_2500mA definition
+power: supply: smb-lib: recalculate jeita range settings
+power: supply: smb-lib: set asus_chg_flow_work to 2500mA for all charger type
+power: supply: smb-lib: set usb_max_current in asus_adapter_adc_work to 2500mA
+power: supply: smb-lib: set ICL to 2500mA on initial insertion
+power: supply: smb-lib: set LEGACY_UNKNOWN_VOTER to 2500mA
+power: supply: smb-lib: add FORCE_FAST_CHARGE_VOTER to jeita_rules()
+power: supply: smb-lib: add missed syntax
+arm64: configs: asus: Enable FORCE_FAST_CHARGE
+power: supply: qcom: qpnp-smb2: Allow write access to some battery psy properties
+power: supply: qcom: fg-alg: Support maximum limit for capacity learning
+power: supply: qcom: qg-soc: Don't drop SOC if still charging
+power: supply: qcom: qpnp-qg: Fix battery coulomb count not monotonic
+power: supply: qcom: qpnp-qg: Fix the 1% resolution limit of charge_counter
+power: supply: qcom: qpnp-qg: Adjust QG_SOC when CC_SOC exceeds SOC_FULL
+power: supply: qcom: qpnp-qg: Fix incorrect vbatt parameter for good ocv re-trigger
+power: supply: qcom: Fix wrong logic in maximum limit
+power: supply: qcom: smb-reg: Fix incorrect QC2.0 pulse count enum values
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
