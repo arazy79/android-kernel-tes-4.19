@@ -416,7 +416,7 @@ struct gpio_control {
 };
 //ASUS BSP : Add gpio control struct ---
 /* Huaqin modify for ZQL1650-70 Identify Adapter ID by fangaijun at 2018/02/8 end */
-#endi
+#endif
 
 int smblib_read(struct smb_charger *chg, u16 addr, u8 *val);
 int smblib_masked_write(struct smb_charger *chg, u16 addr, u8 mask, u8 val);
@@ -497,7 +497,7 @@ int smblib_set_prop_input_suspend(struct smb_charger *chg,
 int smblib_set_prop_charging_enabled(struct smb_charger *chg,
 				const union power_supply_propval *val);
 /* Huaqin add for ZQL1650-189 by diganyun at 2018/02/01 end */
-#endi
+#endif
 int smblib_set_prop_batt_capacity(struct smb_charger *chg,
 				const union power_supply_propval *val);
 int smblib_set_prop_batt_status(struct smb_charger *chg,
