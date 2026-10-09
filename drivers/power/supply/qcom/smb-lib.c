@@ -100,15 +100,14 @@ static void asus_smblib_rerun_aicl(struct smb_charger *chg)
 }
 void asus_smblib_stay_awake(struct smb_charger *chg)
 {
-	pm_stay_awake(chg->dev);
+	if (chg && chg->dev)
+		pm_stay_awake(chg->dev);
 }
+
 void asus_smblib_relax(struct smb_charger *chg)
 {
-	pm_relax(chg->dev);
-}
-void asus_smblib_relax(struct smb_charger *chg)
-{
-	__pm_relax(asus_chg_lock);
+	if (chg && chg->dev)
+		pm_relax(chg->dev);
 }
 /* Huaqin add for ZQL1650-68 Realize jeita function by fangaijun at 2018/02/03 end */
 #endif /* CONFIG_MACH_ASUS_SDM660 */
