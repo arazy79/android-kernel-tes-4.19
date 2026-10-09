@@ -1,0 +1,120 @@
+name: Cherry-pick by judul commit
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: 'URL repo sumber'
+        required: true
+        default: 'https://github.com/rsuntk/android_kernel_asus_sdm660-4.19'
+      source_branch:
+        description: 'Branch di repo sumber'
+        required: true
+        default: 'master'
+      target_branch:
+        description: 'Branch basis di repo ini'
+        required: true
+        default: 'lineage-23.2'
+      new_branch:
+        description: 'Nama branch hasil'
+        required: true
+        default: 'fastcharge-test'
+      stop_on_conflict:
+        description: 'Berhenti di konflik pertama (tanpa push)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Cherry-pick
+        env:
+          SRC_REPO: ${{ inputs.source_repo }}
+          SRC_BRANCH: ${{ inputs.source_branch }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          NEW_BRANCH: ${{ inputs.new_branch }}
+          STOP: ${{ inputs.stop_on_conflict }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          T="$RUNNER_TEMP"
+          SRC_REF="refs/remotes/src/pick"
+
+          # baca daftar judul sebelum pindah branch
+          sed 's/\r$//; s/^[[:space:]]*//; s/[[:space:]]*$//' .github/pick-list.txt | awk 'NF' > "$T/titles.txt"
+          echo "Baris di daftar: $(wc -l < "$T/titles.txt")"
+
+          git remote add src "$SRC_REPO"
+          git fetch --no-tags --filter=blob:none src "$SRC_BRANCH:$SRC_REF"
+          git checkout -B "$NEW_BRANCH" "origin/$TARGET_BRANCH"
+
+          # cari SHA berdasarkan judul persis
+          git log --format='%H%x09%s' "$SRC_REF" > "$T/subjects.tsv"
+          : > "$T/shas.txt"
+          while IFS= read -r t; do
+            sha=$(TITLE="$t" awk -F'\t' '$2==ENVIRON["TITLE"] {print $1; exit}' "$T/subjects.tsv")
+            if [ -n "$sha" ]; then
+              echo "$sha" >> "$T/shas.txt"
+            fi
+          done < "$T/titles.txt"
+
+          sort -u "$T/shas.txt" > "$T/want.txt"
+          echo "Judul yang cocok di sumber: $(wc -l < "$T/want.txt")"
+
+          # urutkan sesuai urutan asli di repo sumber (terlama dulu)
+          git rev-list --reverse --topo-order "$SRC_REF" | grep -Fxf "$T/want.txt" > "$T/order.txt" || true
+          if [ ! -s "$T/order.txt" ]; then
+            echo "Nggak ada judul yang cocok. Cek branch sumber / isi pick-list.txt"
+            exit 1
+          fi
+
+          picked=0
+          skipped=0
+          conflicts=0
+          while read -r sha; do
+            title=$(git log -1 --format=%s "$sha")
+            if git cherry-pick -x "$sha" >/dev/null 2>&1; then
+              echo "OK        ${sha:0:10} $title"
+              picked=$((picked+1))
+            elif [ -z "$(git diff --name-only --diff-filter=U)" ]; then
+              git cherry-pick --skip >/dev/null 2>&1 || git cherry-pick --abort
+              echo "SUDAH ADA ${sha:0:10} $title"
+              skipped=$((skipped+1))
+            else
+              echo "KONFLIK   ${sha:0:10} $title"
+              git diff --name-only --diff-filter=U | sed 's/^/            file: /'
+              git cherry-pick --abort
+              conflicts=$((conflicts+1))
+              if [ "$STOP" = "true" ]; then
+                echo "Berhenti (stop_on_conflict)."
+                exit 1
+              fi
+            fi
+          done < "$T/order.txt"
+
+          echo "Selesai: $picked masuk, $skipped sudah ada, $conflicts konflik"
+          {
+            echo "### Hasil cherry-pick"
+            echo "- masuk: $picked"
+            echo "- sudah ada: $skipped"
+            echo "- konflik: $conflicts"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$conflicts" -gt 0 ]; then
+            echo "::warning::$conflicts commit konflik, cek log step ini"
+          fi
+
+          if [ "$picked" -gt 0 ]; then
+            git push origin "$NEW_BRANCH" --force
+          else
+            echo "Nggak ada yang masuk, nggak push."
+          fi
