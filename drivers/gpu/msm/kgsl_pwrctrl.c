@@ -1366,7 +1366,6 @@ static ssize_t popp_store(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t count)
 {
-	/* Fitur POPP dimatikan, langsung return count */
 	return count;
 }
 
@@ -1374,7 +1373,6 @@ static ssize_t popp_show(struct device *dev,
 					   struct device_attribute *attr,
 					   char *buf)
 {
-	/* Fitur POPP dimatikan, return 0 saja */
 	return scnprintf(buf, PAGE_SIZE, "0\n");
 }
 
@@ -2600,9 +2598,7 @@ static int kgsl_pwrctrl_enable(struct kgsl_device *device)
 	if (pwr->wakeup_maxpwrlevel) {
 		level = pwr->max_pwrlevel;
 		pwr->wakeup_maxpwrlevel = 0;
-	/* } else if (kgsl_popp_check(device)) {
-		level = pwr->active_pwrlevel;
-	} */ else {
+	} else {
 		level = pwr->default_pwrlevel;
 	}
 
