@@ -575,12 +575,7 @@ unsigned int kgsl_pwrctrl_adjust_pwrlevel(struct kgsl_device *device,
 		pwr->constraint.type = KGSL_CONSTRAINT_NONE;
 	}
 
-	/*
-	 * Adjust the power level if required by thermal, max/min,
-	 * constraints, etc
-	 */
-	return _adjust_pwrlevel(pwr, new_level, &pwr->constraint,
-					device->pwrscale.popp_level);
+		return _adjust_pwrlevel(pwr, new_level, &pwr->constraint, 0);
 }
 
 /**
@@ -1371,21 +1366,7 @@ static ssize_t popp_store(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t count)
 {
-	unsigned int val = 0;
-	struct kgsl_device *device = dev_get_drvdata(dev);
-	int ret;
-
-	ret = kgsl_sysfs_store(buf, &val);
-	if (ret)
-		return ret;
-
-	mutex_lock(&device->mutex);
-	if (val)
-		set_bit(POPP_ON, &device->pwrscale.popp_state);
-	else
-		clear_bit(POPP_ON, &device->pwrscale.popp_state);
-	mutex_unlock(&device->mutex);
-
+	/* Fitur POPP dimatikan, langsung return count */
 	return count;
 }
 
@@ -1393,10 +1374,8 @@ static ssize_t popp_show(struct device *dev,
 					   struct device_attribute *attr,
 					   char *buf)
 {
-	struct kgsl_device *device = dev_get_drvdata(dev);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n",
-		test_bit(POPP_ON, &device->pwrscale.popp_state));
+	/* Fitur POPP dimatikan, return 0 saja */
+	return scnprintf(buf, PAGE_SIZE, "0\n");
 }
 
 static ssize_t gpu_model_show(struct device *dev,
@@ -2621,9 +2600,9 @@ static int kgsl_pwrctrl_enable(struct kgsl_device *device)
 	if (pwr->wakeup_maxpwrlevel) {
 		level = pwr->max_pwrlevel;
 		pwr->wakeup_maxpwrlevel = 0;
-	} else if (kgsl_popp_check(device)) {
+	/* } else if (kgsl_popp_check(device)) {
 		level = pwr->active_pwrlevel;
-	} else {
+	} */ else {
 		level = pwr->default_pwrlevel;
 	}
 
