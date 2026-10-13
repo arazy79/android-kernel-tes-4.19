@@ -494,7 +494,7 @@
 				qcom,effect-id = <2>;
 				qcom,wf-vmax-mv = <1600>;
 				qcom,wf-pattern = [7e 7e];
-				qcom,wf-play-rate-us = <4000>;
+				qcom,wf-play-rate-us = <2500>;
 				qcom,lra-auto-resonance-disable;
 			};
 			wf_3 {
