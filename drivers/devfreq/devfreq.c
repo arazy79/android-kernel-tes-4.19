@@ -27,7 +27,9 @@
 #include <linux/printk.h>
 #include <linux/hrtimer.h>
 #include <linux/of.h>
+#include <linux/string.h>
 #include "governor.h"
+
 
 #define MAX(a,b)	((a > b) ? a : b)
 #define MIN(a,b)	((a < b) ? a : b)
@@ -1276,8 +1278,60 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 	if (ret != 1)
 		return -EINVAL;
 
+	/* ============================================================ */
+	/* === GPU HARDLOOR BYPASS: Hanya intercept jika device = GPU === */
+	/* ============================================================ */
+	{
+		const char *name = dev_name(dev);
+		
+		/* Cek apakah nama device mengandung "gpu" atau "kgsl" */
+		if (name && (strstr(name, "gpu") || strstr(name, "kgsl"))) {
+			
+			unsigned long *freq_table = df->profile->freq_table;
+			unsigned long true_max_freq;
+
+			/* Ambil nilai max frequency tertinggi dari tabel OPP GPU */
+			if (freq_table[0] < freq_table[df->profile->max_state - 1])
+				true_max_freq = freq_table[df->profile->max_state - 1];
+			else
+				true_max_freq = freq_table[0];
+
+			/* GANTI ANGKA 800000 DI BAWAH INI! */
+			/* Masukkan threshold aman (misal: jika max GPU lo 900MHz, tulis 900000) */
+			/* Jika powerhint mencoba set max_freq di bawah angka ini, kita paksa ke true_max_freq */
+			if (value < 800000) {
+				value = true_max_freq;
+			}
+		}
+	}
+	/* ============================================================ */
+
 	mutex_lock(&df->event_lock);
 	mutex_lock(&df->lock);
+
+	if (value) {
+		if (value < df->min_freq) {
+			ret = -EINVAL;
+			goto unlock;
+		}
+	} else {
+		unsigned long *freq_table = df->profile->freq_table;
+
+		/* Get maximum frequency according to sorting order */
+		if (freq_table[0] < freq_table[df->profile->max_state - 1])
+			value = freq_table[df->profile->max_state - 1];
+		else
+			value = freq_table[0];
+	}
+
+	df->max_freq = value;
+	update_devfreq(df);
+	ret = count;
+unlock:
+	mutex_unlock(&df->lock);
+	mutex_unlock(&df->event_lock);
+	return ret;
+}
 
 	if (value) {
 		if (value < df->min_freq) {
