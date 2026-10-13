@@ -1299,7 +1299,7 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 			/* GANTI ANGKA 800000 DI BAWAH INI! */
 			/* Masukkan threshold aman (misal: jika max GPU lo 900MHz, tulis 900000) */
 			/* Jika powerhint mencoba set max_freq di bawah angka ini, kita paksa ke true_max_freq */
-			if (value < 800000) {
+			if (value < 850000) {
 				value = true_max_freq;
 			}
 		}
