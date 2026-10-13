@@ -1279,9 +1279,9 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 	if (ret != 1)
 		return -EINVAL;
 
-	/* GPU hardfloor: block userspace downclock (floor 850 MHz) */
+	/* GPU only (kgsl-3d0): block userspace downclock of max_freq */
 	name = dev_name(dev);
-	if (name && (strstr(name, "gpu") || strstr(name, "kgsl")) &&
+	if (name && strstr(name, "kgsl-3d0") &&
 	    df->profile->freq_table && df->profile->max_state > 0) {
 		unsigned long *freq_table = df->profile->freq_table;
 		unsigned long true_max_freq;
@@ -1291,8 +1291,7 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 		else
 			true_max_freq = freq_table[0];
 
-		if (value < 850000000UL)
-			value = true_max_freq;
+		value = true_max_freq;
 	}
 
 	mutex_lock(&df->event_lock);
@@ -1321,29 +1320,7 @@ unlock:
 	mutex_unlock(&df->event_lock);
 	return ret;
 }
-	if (value) {
-		if (value < df->min_freq) {
-			ret = -EINVAL;
-			goto unlock;
-		}
-	} else {
-		unsigned long *freq_table = df->profile->freq_table;
 
-		/* Get maximum frequency according to sorting order */
-		if (freq_table[0] < freq_table[df->profile->max_state - 1])
-			value = freq_table[df->profile->max_state - 1];
-		else
-			value = freq_table[0];
-	}
-
-	df->max_freq = value;
-	update_devfreq(df);
-	ret = count;
-unlock:
-	mutex_unlock(&df->lock);
-	mutex_unlock(&df->event_lock);
-	return ret;
-}
 static DEVICE_ATTR_RW(min_freq);
 
 static ssize_t max_freq_show(struct device *dev, struct device_attribute *attr,
