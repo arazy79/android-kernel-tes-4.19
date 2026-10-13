@@ -1273,38 +1273,27 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 	struct devfreq *df = to_devfreq(dev);
 	unsigned long value;
 	int ret;
+	const char *name;
 
 	ret = sscanf(buf, "%lu", &value);
 	if (ret != 1)
 		return -EINVAL;
 
-	/* ============================================================ */
-	/* === GPU HARDLOOR BYPASS: Hanya intercept jika device = GPU === */
-	/* ============================================================ */
-	{
-		const char *name = dev_name(dev);
-		
-		/* Cek apakah nama device mengandung "gpu" atau "kgsl" */
-		if (name && (strstr(name, "gpu") || strstr(name, "kgsl"))) {
-			
-			unsigned long *freq_table = df->profile->freq_table;
-			unsigned long true_max_freq;
+	/* GPU hardfloor: block userspace downclock (floor 850 MHz) */
+	name = dev_name(dev);
+	if (name && (strstr(name, "gpu") || strstr(name, "kgsl")) &&
+	    df->profile->freq_table && df->profile->max_state > 0) {
+		unsigned long *freq_table = df->profile->freq_table;
+		unsigned long true_max_freq;
 
-			/* Ambil nilai max frequency tertinggi dari tabel OPP GPU */
-			if (freq_table[0] < freq_table[df->profile->max_state - 1])
-				true_max_freq = freq_table[df->profile->max_state - 1];
-			else
-				true_max_freq = freq_table[0];
+		if (freq_table[0] < freq_table[df->profile->max_state - 1])
+			true_max_freq = freq_table[df->profile->max_state - 1];
+		else
+			true_max_freq = freq_table[0];
 
-			/* GANTI ANGKA 800000 DI BAWAH INI! */
-			/* Masukkan threshold aman (misal: jika max GPU lo 900MHz, tulis 900000) */
-			/* Jika powerhint mencoba set max_freq di bawah angka ini, kita paksa ke true_max_freq */
-			if (value < 850000) {
-				value = true_max_freq;
-			}
-		}
+		if (value < 850000000UL)
+			value = true_max_freq;
 	}
-	/* ============================================================ */
 
 	mutex_lock(&df->event_lock);
 	mutex_lock(&df->lock);
@@ -1332,7 +1321,6 @@ unlock:
 	mutex_unlock(&df->event_lock);
 	return ret;
 }
-
 	if (value) {
 		if (value < df->min_freq) {
 			ret = -EINVAL;
