@@ -1276,7 +1276,7 @@
 			<  1401600000 0x04040049 0x073a003a 0x2 5 >,
 			<  1536000000 0x04040050 0x08400040 0x2 6 >,
 			<  1747200000 0x0404005b 0x09480048 0x2 7 >,
-			<  2150400000 0x04040060 0x094c004c 0x3 8 >;
+			<  1958400000 0x04040060 0x094c004c 0x3 8 >;
 
 		qcom,pwrcl-speedbin4-v0 =
 			<   300000000 0x0004000f 0x01200020 0x1 1 >,
@@ -1313,7 +1313,7 @@
 			<  1747200000 0x0404005b 0x09480048 0x2 4 >,
 			<  1958400000 0x04040066 0x0a510051 0x2 5 >,
 			<  2150400000 0x04040070 0x0b590059 0x2 6 >,
-			<  2457600000 0x04040080 0x0c660066 0x3 7 >;
+			<  2208000000 0x04040080 0x0c660066 0x3 7 >;
 
 		qcom,perfcl-speedbin4-v0 =
 			<   300000000 0x0004000f 0x01200020 0x1 1 >,
@@ -1324,14 +1324,14 @@
 			<  2150400000 0x04040070 0x0b590059 0x2 6 >,
 			<  2208000000 0x04040073 0x0b5c005c 0x3 7 >;
 
-		qcom,up-timer = <1000 1000>;
-		qcom,down-timer = <1000 1000>;
+		qcom,up-timer = <3000 3000>;
+		qcom,down-timer = <2000 2000>;
 		qcom,set-ret-inactive;
 		qcom,enable-llm-freq-vote;
-		qcom,llm-freq-up-timer = <327675 327675>;
+		qcom,llm-freq-up-timer = <25000 25000>;
 		qcom,llm-freq-down-timer = <327675 327675>;
 		qcom,enable-llm-volt-vote;
-		qcom,llm-volt-up-timer = <327675 327675>;
+		qcom,llm-volt-up-timer = <25000 25000>;
 		qcom,llm-volt-down-timer = <327675 327675>;
 		qcom,cc-reads = <10>;
 		qcom,cc-delay = <5>;
@@ -1347,7 +1347,7 @@
 		qcom,apm-mode-ctl = <0x179d0004 0x179d0010>;
 		qcom,apm-ctrl-status = <0x179d000c 0x179d0018>;
 
-		qcom,apm-threshold-voltage = <872000>;
+		qcom,apm-threshold-voltage = <800000>;
 		qcom,boost-fsm-en;
 		qcom,safe-fsm-en;
 		qcom,ps-fsm-en;
@@ -1386,7 +1386,7 @@
 			< 1747200 >,
 			< 1958400 >,
 			< 2150400 >,
-			< 2457600 >;
+			< 2208000 >;
 	};
 
 	sdhc_1: sdhci@c0c4000 {
