@@ -56,7 +56,7 @@
 	qcom,hold-soc-while-full;
 	qcom,linearize-soc;
 	qcom,fg-force-load-profile;
-	qcom,fg-jeita-thresholds = <0 5 55 60>;
+	qcom,fg-jeita-thresholds = <0 5 60 65>;
 	qcom,fg-jeita-hyst-temp = <3>;
 	qcom,fg-batt-temp-delta = <6>;
 	qcom,fg-recharge-voltage = <4150>;
