@@ -27,7 +27,9 @@
 #include <linux/printk.h>
 #include <linux/hrtimer.h>
 #include <linux/of.h>
+#include <linux/string.h>
 #include "governor.h"
+
 
 #define MAX(a,b)	((a > b) ? a : b)
 #define MIN(a,b)	((a < b) ? a : b)
@@ -1276,6 +1278,12 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 	if (ret != 1)
 		return -EINVAL;
 
+	/* OC Hardfloor (GPU only): block userspace downclock of max_freq */
+	if (strstr(dev_name(dev), "kgsl-3d0")) {
+		if (value < 850000000UL)
+			value = 850000000UL;
+	}
+
 	mutex_lock(&df->event_lock);
 	mutex_lock(&df->lock);
 
@@ -1302,6 +1310,7 @@ unlock:
 	mutex_unlock(&df->event_lock);
 	return ret;
 }
+
 static DEVICE_ATTR_RW(min_freq);
 
 static ssize_t max_freq_show(struct device *dev, struct device_attribute *attr,
