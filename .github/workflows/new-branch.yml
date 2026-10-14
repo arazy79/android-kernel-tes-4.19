@@ -12,7 +12,7 @@ on:
         description: 'Nama branch SUMBER yang mau di-copy (misal: lineage-23.2 atau fastcharge-test)'
         required: false
         type: string
-        default: 'lineage-23.2'
+        default: 'fastcharge-test'
       branch_name:
         description: 'Nama branch BARU yang akan dibuat (Empty Field)'
         required: false
