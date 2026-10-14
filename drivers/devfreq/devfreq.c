@@ -1273,25 +1273,15 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 	struct devfreq *df = to_devfreq(dev);
 	unsigned long value;
 	int ret;
-	const char *name;
 
 	ret = sscanf(buf, "%lu", &value);
 	if (ret != 1)
 		return -EINVAL;
 
-	/* GPU only (kgsl-3d0): block userspace downclock of max_freq */
-	name = dev_name(dev);
-	if (name && strstr(name, "kgsl-3d0") &&
-	    df->profile->freq_table && df->profile->max_state > 0) {
-		unsigned long *freq_table = df->profile->freq_table;
-		unsigned long true_max_freq;
-
-		if (freq_table[0] < freq_table[df->profile->max_state - 1])
-			true_max_freq = freq_table[df->profile->max_state - 1];
-		else
-			true_max_freq = freq_table[0];
-
-		value = true_max_freq;
+	/* OC Hardfloor (GPU only): block userspace downclock of max_freq */
+	if (strstr(dev_name(dev), "kgsl-3d0")) {
+		if (value < 850000000UL)
+			value = 850000000UL;
 	}
 
 	mutex_lock(&df->event_lock);
