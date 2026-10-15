@@ -34,8 +34,8 @@ jobs:
         if: inputs.confirm_create == true && inputs.branch_name != ''
         uses: actions/checkout@v4
         with:
-          repository: arazy79/android_kernel_asus_sdm660-4.19_rsuntk
-          ref: master
+          repository: https://github.com/arazy79/android_kernel_asus_sdm660-4.19_skywalker
+          ref: r2/s
           path: temp-source
           fetch-depth: 0
           # CATATAN: Jika repo source ini PRIVATE, hapus tanda pagar di baris bawah 
