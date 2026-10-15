@@ -67,9 +67,9 @@ module_param(const_icl_enable, bool, 0644);
 #define printk(...)  printk(KERN_ERR CHARGER_TAG __VA_ARGS__)
 #define CHG_DBG(...)  printk(KERN_ERR CHARGER_TAG __VA_ARGS__)
 #define CHG_DBG_E(...)  printk(KERN_ERR CHARGER_TAG ERROR_TAG __VA_ARGS__)
-// struct smb_charger *smbchg_dev;
+struct smb_charger *smbchg_dev;
 /* Per min system suspend sw jeita */
-// struct timespec last_jeita_time;
+struct timespec last_jeita_time;
 static struct alarm bat_alarm;
 void smblib_asus_monitor_start(struct smb_charger *chg, int time);
 
