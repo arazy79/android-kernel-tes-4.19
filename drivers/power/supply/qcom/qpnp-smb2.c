@@ -172,7 +172,27 @@ struct smb2 {
 	bool			bad_part;
 };
 
+#ifdef CONFIG_MACH_ASUS_SDM660
+/* Huaqin add for ZQL1650-68 Realize jeita function by fangaijun at 2018/02/03 start */
+struct smb_charger *smbchg_dev;
+/* Huaqin add for ZQL1650-68 systme suspend 1 min run sw jeita by fangaijun at 2018/02/06 start */
+struct timespec last_jeita_time;
+/* Huaqin add for ZQL1650-68 systme suspend 1 min run sw jeita by fangaijun at 2018/02/06 end */
+struct wakeup_source *asus_chg_lock;
+/* Huaqin add for ZQL1650-68 Realize jeita function by fangaijun at 2018/02/03 end */
+/* Huaqin add for ZQL1650-68 systme suspend 1 min run sw jeita by fangaijun at 2018/02/06 start */
+extern void smblib_asus_monitor_start(struct smb_charger *chg, int time);
+extern bool asus_get_prop_usb_present(struct smb_charger *chg);
+extern void asus_smblib_stay_awake(struct smb_charger *chg);
+extern void asus_smblib_relax(struct smb_charger *chg);
+/* Huaqin add for ZQL1650-68 systme suspend 1 min run sw jeita by fangaijun at 2018/02/06 end */
+/* Huaqin modify for ZQL1650-647 add otg debug info by diganyun at 2018/03/16 start*/
+#ifdef HQ_BUILD_FACTORY
+static int __debug_mask = 0x10;
+#else
 static int __debug_mask;
+#endif
+#endif /* CONFIG_MACH_ASUS_SDM660 */
 
 static int __weak_chg_icl_ua = 500000;
 static ssize_t weak_chg_icl_ua_show(struct device *dev, struct device_attribute
