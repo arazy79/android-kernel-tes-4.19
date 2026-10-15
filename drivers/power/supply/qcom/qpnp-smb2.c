@@ -174,9 +174,9 @@ struct smb2 {
 
 #ifdef CONFIG_MACH_ASUS_SDM660
 /* Huaqin add for ZQL1650-68 Realize jeita function by fangaijun at 2018/02/03 start */
-struct smb_charger *smbchg_dev;
+// struct smb_charger *smbchg_dev;
 /* Huaqin add for ZQL1650-68 systme suspend 1 min run sw jeita by fangaijun at 2018/02/06 start */
-struct timespec last_jeita_time;
+// struct timespec last_jeita_time;
 /* Huaqin add for ZQL1650-68 systme suspend 1 min run sw jeita by fangaijun at 2018/02/06 end */
 struct wakeup_source *asus_chg_lock;
 /* Huaqin add for ZQL1650-68 Realize jeita function by fangaijun at 2018/02/03 end */
