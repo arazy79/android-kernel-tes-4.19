@@ -27,9 +27,7 @@
 #include <linux/printk.h>
 #include <linux/hrtimer.h>
 #include <linux/of.h>
-#include <linux/string.h>
 #include "governor.h"
-
 
 #define MAX(a,b)	((a > b) ? a : b)
 #define MIN(a,b)	((a < b) ? a : b)
@@ -588,7 +586,6 @@ static void devfreq_dev_release(struct device *dev)
 
 	mutex_destroy(&devfreq->lock);
 	mutex_destroy(&devfreq->event_lock);
-	srcu_cleanup_notifier_head(&devfreq->transition_notifier_list);
 	kfree(devfreq);
 }
 
@@ -650,7 +647,7 @@ struct devfreq *devfreq_add_device(struct device *dev,
 		mutex_unlock(&devfreq->lock);
 		err = set_freq_table(devfreq);
 		if (err < 0)
-			goto err_out;
+			goto err_dev;
 		mutex_lock(&devfreq->lock);
 	}
 
@@ -684,10 +681,22 @@ struct devfreq *devfreq_add_device(struct device *dev,
 					 devfreq->profile->max_state,
 					 devfreq->profile->max_state),
 			     GFP_KERNEL);
+	if (!devfreq->trans_table) {
+		mutex_unlock(&devfreq->lock);
+		err = -ENOMEM;
+		goto err_devfreq;
+	}
+
 	devfreq->time_in_state = devm_kcalloc(&devfreq->dev,
 						devfreq->profile->max_state,
 						sizeof(unsigned long),
 						GFP_KERNEL);
+	if (!devfreq->time_in_state) {
+		mutex_unlock(&devfreq->lock);
+		err = -ENOMEM;
+		goto err_devfreq;
+	}
+
 	devfreq->last_stat_updated = jiffies;
 
 	srcu_init_notifier_head(&devfreq->transition_notifier_list);
@@ -721,7 +730,7 @@ struct devfreq *devfreq_add_device(struct device *dev,
 
 err_init:
 	mutex_unlock(&devfreq_list_lock);
-
+err_devfreq:
 	devfreq_remove_device(devfreq);
 	devfreq = NULL;
 err_dev:
@@ -1130,6 +1139,9 @@ static ssize_t available_governors_show(struct device *d,
 	struct devfreq *df = to_devfreq(d);
 	ssize_t count = 0;
 
+	if (strstr(dev_name(df->dev.parent), "kgsl"))
+		return sprintf(buf, "%s\n", "msm-adreno-tz powersave performance");
+
 	mutex_lock(&devfreq_list_lock);
 
 	/*
@@ -1278,12 +1290,6 @@ static ssize_t max_freq_store(struct device *dev, struct device_attribute *attr,
 	if (ret != 1)
 		return -EINVAL;
 
-	/* OC Hardfloor (GPU only): block userspace downclock of max_freq */
-	if (strstr(dev_name(dev), "kgsl-3d0")) {
-		if (value < 850000000UL)
-			value = 850000000UL;
-	}
-
 	mutex_lock(&df->event_lock);
 	mutex_lock(&df->lock);
 
@@ -1310,7 +1316,6 @@ unlock:
 	mutex_unlock(&df->event_lock);
 	return ret;
 }
-
 static DEVICE_ATTR_RW(min_freq);
 
 static ssize_t max_freq_show(struct device *dev, struct device_attribute *attr,
