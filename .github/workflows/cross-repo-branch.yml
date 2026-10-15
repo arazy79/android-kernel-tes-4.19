@@ -1,19 +1,36 @@
 name: Cross-Repo Branch Creator
-
 on:
   workflow_dispatch:
     inputs:
       confirm_create:
-        description: 'Centang untuk mengaktifkan pembuatan branch (Boolean)'
+        description: 'Centang untuk mengaktifkan pembuatan branch'
         required: true
         type: boolean
         default: true
-      branch_name:
-        description: 'Ketik nama branch baru di sini (Empty Field)'
+
+      source_repo:
+        description: 'Repository Source (contoh: username/repo-atau https://github.com/username/repo)'
+        required: true
+        type: string
+        default: 'arazy79/android_kernel_asus_sdm660-4.19_skywalker'
+
+      source_ref:
+        description: 'Branch/Tag dari Source yang mau dipakai'
+        required: true
+        type: string
+        default: 'r2/s'
+
+      target_repo:
+        description: 'Repository Target (isi: username/repo) — kosong = repo ini'
         required: false
         type: string
+        default: ''
 
-# Izin agar GitHub Actions bisa push ke repo ini
+      branch_name:
+        description: 'Nama branch baru (tanpa spasi)'
+        required: true
+        type: string
+
 permissions:
   contents: write
 
@@ -28,43 +45,44 @@ jobs:
             echo "❌ Error: Nama branch tidak boleh mengandung spasi!"
             exit 1
           fi
-          echo "✅ Input valid. Siap mengambil dari source dan push ke target."
+          echo "✅ Input valid"
+          echo "Source : ${{ inputs.source_repo }} @ ${{ inputs.source_ref }}"
+          echo "Target : ${{ inputs.target_repo || github.repository }}"
+          echo "Branch : ${{ inputs.branch_name }}"
 
       - name: Checkout Source Repository
         if: inputs.confirm_create == true && inputs.branch_name != ''
         uses: actions/checkout@v4
         with:
-          repository: https://github.com/arazy79/android_kernel_asus_sdm660-4.19_skywalker
-          ref: r2/s
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ inputs.source_ref }}
           path: temp-source
           fetch-depth: 0
-          # CATATAN: Jika repo source ini PRIVATE, hapus tanda pagar di baris bawah 
-          # dan buat PAT di settings GitHub kamu, lalu masukkan ke Secrets dengan nama PAT_TOKEN
+          # Kalau source PRIVATE → uncomment & atur secret PAT_TOKEN
           # token: ${{ secrets.PAT_TOKEN }}
 
       - name: Konfigurasi Git & Push ke Target
         if: inputs.confirm_create == true && inputs.branch_name != ''
         run: |
           cd temp-source
-          
-          # Konfigurasi user git
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Tambahkan remote target repo menggunakan token bawaan GitHub Actions
-          # github.repository otomatis mendeteksi repo tempat workflow ini disimpan (android-kernel-tes-4.19)
-          git remote add target https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
-          
-          # Buat branch baru berdasarkan master dari source
+
+          # Tentukan target — kalau kosong pakai repo tempat workflow ini berjalan
+          TARGET_REPO="${{ inputs.target_repo }}"
+          if [ -z "$TARGET_REPO" ]; then
+            TARGET_REPO="${{ github.repository }}"
+          fi
+
+          git remote add target "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${TARGET_REPO}.git"
+
           git checkout -b "${{ inputs.branch_name }}"
-          
-          # Push branch baru tersebut ke repo target
           git push target "${{ inputs.branch_name }}"
-          
-          echo "✅ Sukses! Branch '${{ inputs.branch_name }}' (berdasarkan master source) telah dibuat di repo target."
+
+          echo "✅ Sukses! Branch '${{ inputs.branch_name }}' sudah dibuat di ${TARGET_REPO}"
 
       - name: Info Pembatalan
         if: inputs.confirm_create == false || inputs.branch_name == ''
         run: |
-          echo "⚠️ Pembuatan branch dilewati."
-          echo "Pastikan kamu mencentang konfirmasi dan mengisi nama branch."
+          echo "⚠️ Dilewati — centang konfirmasi & isi nama branch dulu bro"
