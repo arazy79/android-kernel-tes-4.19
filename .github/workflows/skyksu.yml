@@ -5,7 +5,7 @@ on:
       kernel_repo:
         description: 'Kernel repository (username/repo)'
         required: true
-        default: 'https://github.com/arazy79/android-kernel-tes-4.19'
+        default: 'arazy79/android-kernel-tes-4.19'
       kernel_branch:
         description: 'Kernel branch / tag / commit'
         required: true
