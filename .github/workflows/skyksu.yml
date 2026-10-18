@@ -5,11 +5,11 @@ on:
       kernel_repo:
         description: 'Kernel repository (username/repo)'
         required: true
-        default: 'https://github.com/arazy79/asus_660_419'
+        default: 'https://github.com/arazy79/android-kernel-tes-4.19'
       kernel_branch:
         description: 'Kernel branch / tag / commit'
         required: true
-        default: '13'
+        default: '4.19-skywalker'
       defconfig:
         description: 'Defconfig path (relatif dari arch/arm64/configs/vendor/asus/)'
         required: true
