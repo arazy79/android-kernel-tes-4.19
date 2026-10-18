@@ -1,0 +1,44 @@
+name: Cleanup KernelSU
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # PENTING: izin push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Hapus folder KernelSU & sisa lama
+        run: |
+          set -e
+          echo "=== Cek apa yang ada ==="
+          ls -ld KernelSU
+          
+          echo "=== Hapus folder KernelSU ==="
+          rm -rf KernelSU
+          
+          echo "=== Bersihkan Makefile ==="
+          sed -i '/kernelsu/d' drivers/Makefile 2>/dev/null || true
+          
+          echo "=== Bersihkan Kconfig ==="
+          sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig 2>/dev/null || true
+          
+          echo "=== Status perubahan ==="
+          git status
+          git diff
+
+      - name: Commit & Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "✅ Tidak ada perubahan — sudah bersih"
+          else
+            git commit -m "Cleanup: hapus folder KernelSU & sisa lama"
+            git push
+            echo "✅ Berhasil di-push!"
+          fi
