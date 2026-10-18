@@ -1,0 +1,233 @@
+name: Kernel Build X00TD 4.19 skywalker KSU
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: 'Kernel repository (username/repo)'
+        required: true
+        default: 'https://github.com/arazy79/asus_660_419'
+      kernel_branch:
+        description: 'Kernel branch / tag / commit'
+        required: true
+        default: '13'
+      defconfig:
+        description: 'Defconfig path (relatif dari arch/arm64/configs/vendor/asus/)'
+        required: true
+        default: 'X00TD_defconfig'
+      toolchain:
+        description: 'Toolchain: default = clang+binutils bawaan Ubuntu | llvm = Neutron clang 24 | gcc = EVA GCC'
+        type: choice
+        default: 'default'
+        options:
+          - default
+          - llvm
+          - gcc
+      kcflags_w:
+        description: 'Enable KCFLAGS=-w (tekan semua warning)'
+        type: boolean
+        default: false
+      enable_ksu:
+        description: 'Enable KernelSU (centang = ON)'
+        type: boolean
+        default: false
+      ksu_setup_url:
+        description: 'KernelSU setup.sh URL'
+        required: true
+        default: 'https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh'
+      ksu_branch:
+        description: 'KernelSU branch / tag / commit'
+        required: true
+        default: 'master'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Jakarta
+      ARCH: arm64
+      CC: clang
+      CROSS_COMPILE: aarch64-linux-gnu-
+      CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+      CCACHE_DIR: ${{ github.workspace }}/kernel/out/.ccache
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.kernel_repo }}
+          ref: ${{ github.event.inputs.kernel_branch }}
+          path: kernel
+          submodules: recursive
+
+      - name: Apply close_range backport
+        working-directory: kernel
+        run: |
+          if [ ! -f close_range_backport.patch ]; then
+            echo "::error::close_range_backport.patch tidak ada di repo branch ${{ github.event.inputs.kernel_branch }}"
+            exit 1
+          fi
+          if git apply -R --check close_range_backport.patch 2>/dev/null; then
+            echo "Sudah ter-apply, skip"
+          else
+            git apply --check close_range_backport.patch
+            git apply close_range_backport.patch
+            echo "Backport applied"
+          fi
+          grep -n "SYSCALL_DEFINE3(close_range" fs/open.c || true
+          grep -n "__NR_close_range" include/uapi/asm-generic/unistd.h || true
+
+      - name: Setup KernelSU
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        env:
+          KSU_URL: ${{ github.event.inputs.ksu_setup_url }}
+          KSU_BRANCH: ${{ github.event.inputs.ksu_branch }}
+        run: |
+          [ -z "$KSU_URL" ] && echo "::error::KSU URL kosong" && exit 1
+          [ ! -f arch/arm64/configs/vendor/extra/ksu.config ] && echo "::error::ksu.config tidak ada" && exit 1
+          echo "KSU script: $KSU_URL | branch: $KSU_BRANCH"
+          curl -LSs "$KSU_URL" | bash -s "$KSU_BRANCH"
+          [ ! -f drivers/kernelsu/Kconfig ] && echo "::error::Setup KSU gagal" && exit 1
+
+      - name: Select toolchain
+        id: tc
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+        run: |
+          case "$TOOLCHAIN" in
+            llvm)
+              echo "dir=$HOME/neutron-clang" >> "$GITHUB_OUTPUT"
+              echo "key=llvm-24-neutron-06092026" >> "$GITHUB_OUTPUT"
+              echo "out_prefix=kernel-out-llvm-" >> "$GITHUB_OUTPUT"
+              ;;
+            gcc)
+              echo "dir=$HOME/gcc-arm64" >> "$GITHUB_OUTPUT"
+              echo "key=gcc-eva-arm64-06052026" >> "$GITHUB_OUTPUT"
+              echo "out_prefix=kernel-out-gcc-" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "dir=" >> "$GITHUB_OUTPUT"
+              echo "key=" >> "$GITHUB_OUTPUT"
+              echo "out_prefix=kernel-build-" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            kernel/out/.ccache
+            kernel/out
+          key: ${{ steps.tc.outputs.out_prefix }}${{ github.run_id }}
+          restore-keys: |
+            ${{ steps.tc.outputs.out_prefix }}
+
+      - name: Cache toolchain
+        id: tc_cache
+        if: ${{ github.event.inputs.toolchain != 'default' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.tc.outputs.dir }}
+          key: ${{ steps.tc.outputs.key }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git libncurses-dev lib32readline-dev lib32z1-dev liblz4-tool libssl-dev lzop rsync squashfs-tools zip zlib1g-dev
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang llvm lld zstd wget xz-utils
+
+      - name: Fetch toolchain
+        if: ${{ github.event.inputs.toolchain != 'default' && steps.tc_cache.outputs.cache-hit != 'true' }}
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+        run: |
+          if [ "$TOOLCHAIN" = "llvm" ]; then
+            mkdir -p "$HOME/neutron-clang"
+            wget -q "https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/06092026/neutron-clang-06092026.tar.zst" -O /tmp/clang.tar.zst
+            tar -xf /tmp/clang.tar.zst -C "$HOME/neutron-clang"
+            rm -f /tmp/clang.tar.zst
+            [ ! -x "$HOME/neutron-clang/bin/clang" ] && echo "::error::Neutron extract gagal" && exit 1
+          else
+            cd "$HOME"
+            wget -q "https://github.com/mvaisakh/gcc-build/releases/download/06052026/eva-gcc-arm64-06052026.xz" -O gcc.tar.xz
+            tar -xf gcc.tar.xz
+            rm -f gcc.tar.xz
+            [ ! -d "$HOME/gcc-arm64/bin" ] && echo "::error::EVA GCC extract gagal" && exit 1
+          fi
+
+      - name: Setup toolchain env
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+          KCFLAGS_W: ${{ github.event.inputs.kcflags_w }}
+        run: |
+          case "$TOOLCHAIN" in
+            llvm)
+              TC="$HOME/neutron-clang"
+              echo "$TC/bin" >> "$GITHUB_PATH"
+              echo "LD_LIBRARY_PATH=$TC/lib:$TC/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+              echo "TC_MAKE_ARGS=LLVM=1 LLVM_IAS=1 CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+            gcc)
+              TC="$HOME/gcc-arm64"
+              prefix=""
+              for p in aarch64-linux-android- aarch64-linux-gnu- aarch64-elf- aarch64-linux-; do
+                [ -f "$TC/bin/${p}gcc" ] && prefix="$p" && break
+              done
+              [ -z "$prefix" ] && echo "::error::Prefix GCC gak ketemu" && exit 1
+              echo "$TC/bin" >> "$GITHUB_PATH"
+              echo "TC_MAKE_ARGS=CROSS_COMPILE=$TC/bin/$prefix CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "TC_MAKE_ARGS=CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+          esac
+          if [ "$KCFLAGS_W" = "true" ] || [ "$TOOLCHAIN" = "gcc" ]; then
+            echo "TC_KCFLAGS=-w" >> "$GITHUB_ENV"
+          else
+            echo "TC_KCFLAGS=-Wno-error" >> "$GITHUB_ENV"
+          fi
+
+      - name: Prepare output dir
+        run: mkdir -p kernel/out
+
+      - name: Make defconfig
+        working-directory: kernel
+        env:
+          ENABLE_KSU: ${{ github.event.inputs.enable_ksu }}
+        run: |
+          cp arch/arm64/configs/vendor/asus/${{ github.event.inputs.defconfig }} out/.config
+          [ "$ENABLE_KSU" = "true" ] && cat arch/arm64/configs/vendor/extra/ksu.config >> out/.config
+          yes "" | make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS oldconfig
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS KCFLAGS="$TC_KCFLAGS" -j"$(nproc)"
+
+      - name: Verify close_range
+        working-directory: kernel
+        continue-on-error: true
+        run: |
+          grep -q "sys_close_range" out/System.map && echo "OK: close_range ada" || echo "::warning::close_range hilang"
+
+      - name: Verify KernelSU
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        continue-on-error: true
+        run: |
+          grep -q "^CONFIG_KSU=y" out/.config && grep -qi "ksu" out/System.map && echo "OK: KSU aktif" || echo "::warning::KSU belum aktif"
+
+      - name: Build DTB + Image.gz-dtb
+        working-directory: kernel
+        run: |
+          make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS dtbs
+          DTB=$(find out/arch/arm64/boot/dts -iname "*x00td*.dtb" -o -name "sdm636.dtb" -o -name "sdm660.dtb" | head -1)
+          [ -z "$DTB" ] && echo "::error::DTB gak ketemu" && exit 1
+          cat out/arch/arm64/boot/Image.gz "$DTB" > out/arch/arm64/boot/Image.gz-dtb
+
+      - name: Upload hasil
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: X00TD-4.19-${{ github.event.inputs.toolchain }}-${{ github.event.inputs.enable_ksu == 'true' && 'KSU' || 'NOKSU' }}-${{ github.run_id }}
+          path: kernel/out/arch/arm64/boot/Image.gz-dtb
