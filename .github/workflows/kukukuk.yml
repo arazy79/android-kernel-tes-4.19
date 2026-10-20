@@ -1,0 +1,439 @@
+name: Kernel Build X00TD 4.19 skywalker KSUUUUUUUUU
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: 'Repository kernel (format owner/repo, JANGAN full URL). Kosongkan = pakai default arazy79/android-kernel-tes-4.19'
+        required: false
+        default: 'arazy79/android-kernel-tes-4.19'
+      branch:
+        description: 'Branch / tag / commit yang di-checkout'
+        required: true
+        default: 'fastcharge-test'
+      defconfig:
+        description: 'Defconfig path (relatif dari arch/arm64/configs/)'
+        required: true
+        default: 'X00TD_defconfig'
+      toolchain:
+        description: 'Toolchain: default = clang+binutils bawaan Ubuntu (seperti biasa) | llvm = Neutron clang 24 | gcc = EVA GCC'
+        type: choice
+        default: 'default'
+        options:
+          - default
+          - llvm
+          - gcc
+      kcflags_w:
+        description: 'Enable KCFLAGS=-w (tekan semua warning)'
+        type: boolean
+        default: false
+      enable_ksu:
+        description: 'Enable KernelSU (centang = ON)'
+        type: boolean
+        default: false
+      ksu_setup_url:
+        description: 'KernelSU setup.sh URL (dipakai kalau KSU ON)'
+        required: true
+        default: 'https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh'
+      ksu_branch:
+        description: 'KernelSU branch / tag / commit (argumen setup.sh)'
+        required: true
+        default: 'master'
+      enable_susfs:
+        description: 'Enable SuSFS (butuh KSU ON; pakai fork di bawah, ksu_setup_url di atas diabaikan)'
+        type: boolean
+        default: false
+      susfs_ksu_fork:
+        description: 'Fork KernelSU buat SuSFS (manager harus dari fork yang sama)'
+        type: choice
+        default: 'bakasu'
+        options:
+          - bakasu
+          - sukisu
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Jakarta
+      ARCH: arm64
+      CC: clang
+      CROSS_COMPILE: aarch64-linux-gnu-
+      CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+      CCACHE_DIR: ${{ github.workspace }}/kernel/out/.ccache
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repo || 'arazy79/android-kernel-tes-4.19' }}
+          ref: ${{ github.event.inputs.branch || 'fastcharge-test' }}
+          path: kernel
+          submodules: recursive
+      - name: Apply close_range backport (fix netd posix_spawn / hotspot)
+        working-directory: kernel
+        run: |
+          if [ ! -f close_range_backport.patch ]; then
+            echo "::error::close_range_backport.patch tidak ada di root repo (branch ${{ github.event.inputs.branch || 'fastcharge-test' }})"
+            exit 1
+          fi
+          if git apply -R --check close_range_backport.patch 2>/dev/null; then
+            echo "close_range backport sudah ter-apply di source, skip"
+          else
+            git apply --check close_range_backport.patch
+            git apply close_range_backport.patch
+            echo "close_range backport applied"
+          fi
+          echo "=== cek hasil ==="
+          grep -n "SYSCALL_DEFINE3(close_range" fs/open.c
+          grep -n "__NR_close_range\|define __NR_syscalls" include/uapi/asm-generic/unistd.h
+      - name: Setup KernelSU
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        env:
+          KSU_URL: ${{ github.event.inputs.ksu_setup_url }}
+          KSU_BRANCH: ${{ github.event.inputs.ksu_branch }}
+          ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
+          SUSFS_FORK: ${{ github.event.inputs.susfs_ksu_fork }}
+        run: |
+          if [ "$ENABLE_SUSFS" = "true" ]; then
+            case "$SUSFS_FORK" in
+              sukisu)
+                KSU_URL="https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/refs/heads/main/kernel/setup.sh"
+                KSU_BRANCH="builtin"
+                ;;
+              bakasu)
+                # main punya $(error Please wait susfs update) tanpa syarat di tools/susfs_compat.mk, jadi pakai sync-susfs
+                KSU_URL="https://raw.githubusercontent.com/Baka-SU/BakaSU/refs/heads/sync-susfs/kernel/setup.sh"
+                KSU_BRANCH="sync-susfs"
+                ;;
+              *)
+                echo "::error::fork SuSFS tidak dikenal: $SUSFS_FORK"
+                exit 1
+                ;;
+            esac
+          else
+            if [ -z "$KSU_URL" ]; then
+              echo "::error::enable_ksu dicentang tapi ksu_setup_url kosong"
+              exit 1
+            fi
+            if [ ! -f arch/arm64/configs/vendor/extra/ksu.config ]; then
+              echo "::error::arch/arm64/configs/vendor/extra/ksu.config tidak ada di source"
+              exit 1
+            fi
+          fi
+          echo "::group::KernelSU setup"
+          echo "KSU script : $KSU_URL"
+          echo "KSU branch : $KSU_BRANCH"
+          curl -LSs "$KSU_URL" | bash -s "$KSU_BRANCH"
+          echo "--- drivers/kernelsu ---"
+          ls -la drivers/kernelsu || true
+          echo "--- Makefile / Kconfig hook ---"
+          grep -n kernelsu drivers/Makefile drivers/Kconfig || true
+          echo "::endgroup::"
+          if [ ! -f drivers/kernelsu/Kconfig ]; then
+            echo "::error::drivers/kernelsu/Kconfig tidak ada, setup KernelSU gagal"
+            exit 1
+          fi
+      - name: Apply SuSFS patch + SuSFS inline hooks
+        if: ${{ github.event.inputs.enable_ksu == 'true' && github.event.inputs.enable_susfs == 'true' }}
+        working-directory: kernel
+        env:
+          SUSFS_FORK: ${{ github.event.inputs.susfs_ksu_fork }}
+        run: |
+          set -e
+          # script hook & fix patch diambil dari commit yang dipin (bukan branch), biar build bisa diulang persis
+          BUILDER_SHA=dcd789634247c77d8549a42aef232c680a905585
+          RAW="https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/$BUILDER_SHA/Patches"
+          if [ ! -f susfs_x00td_419.patch ]; then
+            echo "::error::susfs_x00td_419.patch tidak ada di root repo (branch ${{ github.event.inputs.branch || 'fastcharge-test' }})"
+            exit 1
+          fi
+          if git apply -R --check susfs_x00td_419.patch 2>/dev/null; then
+            echo "SuSFS kernel patch sudah ter-apply, skip"
+          else
+            git apply --check susfs_x00td_419.patch
+            git apply --whitespace=nowarn susfs_x00td_419.patch
+            echo "SuSFS kernel patch applied"
+          fi
+          if [ "$SUSFS_FORK" = "sukisu" ]; then
+            # fix patch dipecah per file. runtime/ksud.c ditangani terpisah: konteks hunk-nya sudah geser di upstream
+            # (patch salah deteksi "reversed"), jadi panggilan selinux_hide dihapus langsung.
+            curl -LSsf "$RAW/Patch/sukisu_ultra_fixed.patch" -o /tmp/sukisu_ultra_fixed.patch
+            rm -rf /tmp/sfix && mkdir -p /tmp/sfix
+            awk '/^diff --git /{n++} n>0{print > sprintf("/tmp/sfix/part%02d.p", n)}' /tmp/sukisu_ultra_fixed.patch
+            (
+              cd drivers/kernelsu
+              for p in /tmp/sfix/part*.p; do
+                f=$(grep -m1 '^+++ ' "$p" | sed 's#^+++ [ab]/##')
+                if [ "$f" = "runtime/ksud.c" ]; then
+                  sed -i -e '/ksu_selinux_hide_handle_post_fs_data();/d' -e '/ksu_selinux_hide_handle_second_stage();/d' runtime/ksud.c
+                  if grep -qE "ksu_selinux_hide_handle_(post_fs_data|second_stage)\(\);" runtime/ksud.c; then
+                    echo "::error::panggilan selinux_hide masih ada di runtime/ksud.c"
+                    exit 1
+                  fi
+                  echo "SukiSU fix applied (hapus panggilan selinux_hide): $f"
+                  continue
+                fi
+                rc=0
+                out=$(patch -p1 -N < "$p" 2>&1) || rc=$?
+                if [ "$rc" -ne 0 ]; then
+                  echo "::error::SukiSU fix patch gagal untuk $f"
+                  echo "$out"
+                  exit 1
+                fi
+                echo "SukiSU fix applied: $f"
+              done
+            )
+          fi
+          curl -LSsf "$RAW/susfs_inline_hook_patches.sh" -o susfs_inline_hook_patches.sh
+          bash susfs_inline_hook_patches.sh ./ | tee /tmp/hook.log
+          rm -f susfs_inline_hook_patches.sh
+          if grep -qiE "failed|warning" /tmp/hook.log; then
+            echo "::warning::script hook inline ngelaporin failed/warning, cek log di atas"
+          fi
+          for f in fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c kernel/reboot.c kernel/sys.c; do
+            grep -q "ksu_" "$f" || { echo "::error::hook KSU tidak masuk di $f"; exit 1; }
+          done
+          grep -q "CONFIG_KSU_SUSFS" fs/namespace.c || { echo "::error::hook SuSFS tidak ada di fs/namespace.c"; exit 1; }
+          echo "OK: SuSFS dan hook KSU terpasang"
+      - name: Select toolchain
+        id: tc
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+        run: |
+          case "$TOOLCHAIN" in
+            llvm)
+              echo "dir=$HOME/neutron-clang" >> "$GITHUB_OUTPUT"
+              echo "key=llvm-24-neutron-06092026" >> "$GITHUB_OUTPUT"
+              echo "out_prefix=kernel-out-llvm-" >> "$GITHUB_OUTPUT"
+              ;;
+            gcc)
+              echo "dir=$HOME/gcc-arm64" >> "$GITHUB_OUTPUT"
+              echo "key=gcc-eva-arm64-06052026" >> "$GITHUB_OUTPUT"
+              echo "out_prefix=kernel-out-gcc-" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "dir=" >> "$GITHUB_OUTPUT"
+              echo "key=" >> "$GITHUB_OUTPUT"
+              echo "out_prefix=kernel-build-" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          echo "Toolchain dipilih: $TOOLCHAIN"
+      - name: Restore ccache & build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            kernel/out/.ccache
+            kernel/out
+          key: ${{ steps.tc.outputs.out_prefix }}${{ github.run_id }}
+          restore-keys: |
+            ${{ steps.tc.outputs.out_prefix }}
+      - name: Cache toolchain
+        id: tc_cache
+        if: ${{ github.event.inputs.toolchain != 'default' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.tc.outputs.dir }}
+          key: ${{ steps.tc.outputs.key }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick libncurses-dev lib32readline-dev lib32z1-dev liblz4-tool libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          sudo apt-get install -y clang llvm lld
+          sudo apt-get install -y zstd wget xz-utils
+      - name: Fetch toolchain
+        if: ${{ github.event.inputs.toolchain != 'default' && steps.tc_cache.outputs.cache-hit != 'true' }}
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+        run: |
+          if [ "$TOOLCHAIN" = "llvm" ]; then
+            echo "Downloading Neutron clang..."
+            mkdir -p "$HOME/neutron-clang"
+            wget -q "https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/06092026/neutron-clang-06092026.tar.zst" -O /tmp/clang.tar.zst
+            tar -xf /tmp/clang.tar.zst -C "$HOME/neutron-clang"
+            rm -f /tmp/clang.tar.zst
+            if [ ! -x "$HOME/neutron-clang/bin/clang" ]; then
+              echo "::error::bin/clang tidak ada setelah extract Neutron"
+              ls -la "$HOME/neutron-clang" || true
+              exit 1
+            fi
+          else
+            echo "Downloading EVA GCC..."
+            cd "$HOME"
+            wget -q "https://github.com/mvaisakh/gcc-build/releases/download/06052026/eva-gcc-arm64-06052026.xz" -O gcc.tar.xz
+            tar -xf gcc.tar.xz
+            rm -f gcc.tar.xz
+            if [ ! -d "$HOME/gcc-arm64/bin" ]; then
+              echo "::error::folder gcc-arm64/bin tidak ada setelah extract EVA GCC"
+              ls -la "$HOME" || true
+              exit 1
+            fi
+          fi
+      - name: Setup toolchain environment
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+          KCFLAGS_W: ${{ github.event.inputs.kcflags_w }}
+        run: |
+          case "$TOOLCHAIN" in
+            llvm)
+              TC="$HOME/neutron-clang"
+              echo "$TC/bin" >> "$GITHUB_PATH"
+              echo "LD_LIBRARY_PATH=$TC/lib:$TC/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+              echo "TC_MAKE_ARGS=LLVM=1 LLVM_IAS=1 CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+            gcc)
+              TC="$HOME/gcc-arm64"
+              prefix=""
+              for p in aarch64-linux-android- aarch64-linux-gnu- aarch64-elf- aarch64-linux-; do
+                if [ -f "$TC/bin/${p}gcc" ]; then prefix="$p"; break; fi
+              done
+              if [ -z "$prefix" ]; then
+                echo "::error::gcc aarch64 tidak ditemukan di $TC/bin"
+                ls -la "$TC/bin" || true
+                exit 1
+              fi
+              echo "$TC/bin" >> "$GITHUB_PATH"
+              echo "TC_MAKE_ARGS=CROSS_COMPILE=$TC/bin/$prefix CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "TC_MAKE_ARGS=CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+          esac
+          # KCFLAGS: default tetap -Wno-error (seperti sebelumnya); -w kalau dicentang.
+          # Di mode gcc selalu -w (sama seperti env-gcc.sh di build action rsuntk).
+          if [ "$KCFLAGS_W" = "true" ] || [ "$TOOLCHAIN" = "gcc" ]; then
+            echo "TC_KCFLAGS=-w" >> "$GITHUB_ENV"
+          else
+            echo "TC_KCFLAGS=-Wno-error" >> "$GITHUB_ENV"
+          fi
+      - name: Debug - Check files
+        run: |
+          echo "=== Repo & branch ==="
+          echo "Repo  : ${{ github.event.inputs.repo || 'arazy79/android-kernel-tes-4.19' }}"
+          echo "Branch: ${{ github.event.inputs.branch || 'fastcharge-test' }}"
+          echo "=== Kernel directory contents ==="
+          ls -la kernel/
+          echo "=== Defconfig exists? ==="
+          ls -la kernel/arch/arm64/configs/vendor/asus/${{ github.event.inputs.defconfig }} || echo "FILE NOT FOUND!"
+          echo "=== All defconfigs ==="
+          ls -la kernel/arch/arm64/configs/
+          echo "=== Toolchain ==="
+          echo "TC_MAKE_ARGS=$TC_MAKE_ARGS"
+          echo "TC_KCFLAGS=$TC_KCFLAGS"
+      - name: Prepare output directory
+        run: |
+          mkdir -p kernel/out
+      - name: Make defconfig
+        working-directory: kernel
+        env:
+          ENABLE_KSU: ${{ github.event.inputs.enable_ksu }}
+          ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
+          SUSFS_FORK: ${{ github.event.inputs.susfs_ksu_fork }}
+        run: |
+          cp arch/arm64/configs/vendor/asus/${{ github.event.inputs.defconfig }} out/.config
+          if [ "$ENABLE_KSU" = "true" ] && [ "$ENABLE_SUSFS" = "true" ]; then
+            echo "KernelSU: ON + SuSFS ($SUSFS_FORK)"
+            {
+              echo "CONFIG_KSU=y"
+              echo "CONFIG_KSU_SUSFS=y"
+              echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
+              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+              echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
+              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+              echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
+              echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
+              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
+              echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
+              echo "CONFIG_KSU_SUSFS_SUS_MAP=y"
+              # BakaSU: KSU_SUSFS ("SUSFS Inline Hook") adalah satu pilihan dalam choice hook method,
+              # sejajar dengan KSU_MANUAL_HOOK. Jangan set KSU_MANUAL_HOOK di sini, bentrok.
+            } >> out/.config
+          elif [ "$ENABLE_KSU" = "true" ]; then
+            echo "KernelSU: ON (tambah ksu.config)"
+            cat arch/arm64/configs/vendor/extra/ksu.config >> out/.config
+          else
+            echo "KernelSU: OFF"
+          fi
+          yes "" | make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS oldconfig
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export CC="ccache clang"
+          export CXX="ccache clang++"
+          echo "CPU cores: $(nproc)"
+          make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS KCFLAGS="$TC_KCFLAGS" -j"$(nproc)"
+      - name: Show compiler used
+        working-directory: kernel
+        continue-on-error: true
+        run: |
+          grep -E "LINUX_COMPILER|UTS_VERSION" out/include/generated/compile.h || true
+      - name: Verify close_range ada di kernel hasil build
+        working-directory: kernel
+        continue-on-error: true
+        run: |
+          if grep -E "sys_close_range" out/System.map; then
+            echo "OK: sys_close_range ada di System.map"
+          else
+            echo "::warning::sys_close_range TIDAK ada di System.map, hotspot belum akan jalan"
+            exit 1
+          fi
+      - name: Verify KernelSU di kernel hasil build
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        continue-on-error: true
+        env:
+          ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
+        run: |
+          grep -n "CONFIG_KSU" out/.config || true
+          if grep -q "^CONFIG_KSU=y" out/.config && grep -qi "ksu" out/System.map; then
+            echo "OK: CONFIG_KSU=y dan simbol ksu ada di System.map"
+          else
+            echo "::warning::CONFIG_KSU=y atau simbol ksu tidak ditemukan, KSU belum aktif di build ini"
+            exit 1
+          fi
+          if [ "$ENABLE_SUSFS" = "true" ]; then
+            if grep -q "^CONFIG_KSU_SUSFS=y" out/.config && grep -qi "susfs" out/System.map; then
+              echo "OK: CONFIG_KSU_SUSFS=y dan simbol susfs ada di System.map"
+            else
+              echo "::warning::CONFIG_KSU_SUSFS=y atau simbol susfs tidak ditemukan, SuSFS belum aktif"
+              exit 1
+            fi
+          fi
+      - name: Build DTB + Image.gz-dtb
+        working-directory: kernel
+        run: |
+          make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS dtbs
+          echo "=== All DTB files ==="
+          find out/arch/arm64/boot/dts -name "*.dtb" | sort
+          # Cari DTB untuk X00TD
+          DTB=$(find out/arch/arm64/boot/dts -iname "*x00td*.dtb" | head -1)
+          # Kalau gak ada, coba sdm636.dtb
+          if [ -z "$DTB" ]; then
+            DTB=$(find out/arch/arm64/boot/dts -name "sdm636.dtb" | head -1)
+          fi
+          # Kalau masih gak ada, coba sdm660.dtb
+          if [ -z "$DTB" ]; then
+            DTB=$(find out/arch/arm64/boot/dts -name "sdm660.dtb" | head -1)
+          fi
+          if [ -z "$DTB" ]; then
+            echo "ERROR: No DTB found! Build failed."
+            exit 1
+          fi
+          echo "Using DTB: $DTB"
+          cat out/arch/arm64/boot/Image.gz "$DTB" > out/arch/arm64/boot/Image.gz-dtb
+          echo "=== Final size ==="
+          ls -lh out/arch/arm64/boot/Image.gz out/arch/arm64/boot/Image.gz-dtb
+      - name: Check build result
+        run: |
+          ls -la kernel/out/arch/arm64/boot/
+      - name: Debug CONFIG_KSU (on failure)
+        if: ${{ failure() && github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        run: |
+          grep -n "CONFIG_KSU" out/.config || echo "CONFIG_KSU tidak ada di out/.config"
+      - name: Upload Image.gz-dtb
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-Build-X00TD-SKYWALKER-4.19-${{ github.event.inputs.toolchain }}-${{ github.event.inputs.enable_ksu == 'true' && (github.event.inputs.enable_susfs == 'true' && format('KSU-SUSFS-{0}', github.event.inputs.susfs_ksu_fork) || 'KSU') || 'NOKSU' }}-${{ github.run_id }}
+          path: |
+            kernel/out/arch/arm64/boot/Image.gz-dtb
