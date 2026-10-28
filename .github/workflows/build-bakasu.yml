@@ -61,24 +61,6 @@ jobs:
           path: kernel
           submodules: recursive
 
-      - name: Apply close_range backport (fix netd posix_spawn / hotspot)
-        working-directory: kernel
-        run: |
-          if [ ! -f close_range_backport.patch ]; then
-            echo "::error::close_range_backport.patch tidak ada di root repo branch 13"
-            exit 1
-          fi
-          if git apply -R --check close_range_backport.patch 2>/dev/null; then
-            echo "close_range backport sudah ter-apply di source, skip"
-          else
-            git apply --check close_range_backport.patch
-            git apply close_range_backport.patch
-            echo "close_range backport applied"
-          fi
-          echo "=== cek hasil ==="
-          grep -n "SYSCALL_DEFINE3(close_range" fs/open.c
-          grep -n "__NR_close_range\|define __NR_syscalls" include/uapi/asm-generic/unistd.h
-
       - name: Setup KernelSU
         if: ${{ github.event.inputs.enable_ksu == 'true' }}
         working-directory: kernel
@@ -370,17 +352,6 @@ jobs:
         continue-on-error: true
         run: |
           grep -E "LINUX_COMPILER|UTS_VERSION" out/include/generated/compile.h || true
-
-      - name: Verify close_range ada di kernel hasil build
-        working-directory: kernel
-        continue-on-error: true
-        run: |
-          if grep -E "sys_close_range" out/System.map; then
-            echo "OK: sys_close_range ada di System.map"
-          else
-            echo "::warning::sys_close_range TIDAK ada di System.map, hotspot belum akan jalan"
-            exit 1
-          fi
 
       - name: Verify KernelSU di kernel hasil build
         if: ${{ github.event.inputs.enable_ksu == 'true' }}
