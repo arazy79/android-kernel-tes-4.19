@@ -5760,10 +5760,8 @@ static void smblib_uusb_otg_work(struct work_struct *work)
 {
 	struct smb_charger *chg = container_of(work, struct smb_charger,
 						uusb_otg_work.work);
-	union power_supply_propval pval = { 0, };
 	int rc;
 	u8 stat;
-	bool usb_present = false;
 	bool otg;
 
 	rc = smblib_read(chg, TYPE_C_STATUS_3_REG, &stat);
@@ -5772,27 +5770,10 @@ static void smblib_uusb_otg_work(struct work_struct *work)
 		goto out;
 	}
 
-	rc = smblib_get_prop_usb_present(chg, &pval);
-	if (rc >= 0)
-		usb_present = !!pval.intval;
-
-	otg = !usb_present &&
-	      !!(stat & (U_USB_GND_NOVBUS_BIT | U_USB_GND_BIT));
-
-	if (otg) {
-		extcon_set_state_sync(chg->extcon, EXTCON_USB, false);
-		extcon_set_state_sync(chg->extcon, EXTCON_USB_HOST, true);
-		chg->otg_present = true;
-	} else {
-		extcon_set_state_sync(chg->extcon, EXTCON_USB_HOST, false);
-		extcon_set_state_sync(chg->extcon, EXTCON_USB, usb_present);
-		chg->otg_present = false;
-	}
-
-	smblib_dbg(chg, PR_REGISTER,
-		   "TYPE_C_STATUS_3=0x%02x usb=%d OTG=%d\n",
-		   stat, usb_present, otg);
-
+	otg = !!(stat & (U_USB_GND_NOVBUS_BIT | U_USB_GND_BIT));
+	extcon_set_state_sync(chg->extcon, EXTCON_USB_HOST, otg);
+	smblib_dbg(chg, PR_REGISTER, "TYPE_C_STATUS_3 = 0x%02x OTG=%d\n",
+			stat, otg);
 	power_supply_changed(chg->usb_psy);
 
 out:
