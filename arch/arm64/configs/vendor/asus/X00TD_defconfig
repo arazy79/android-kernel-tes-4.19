@@ -787,6 +787,5 @@ CONFIG_DEVFREQ_MSM_CPUBW_BOOST_FREQ=3879
 # Turnoff info debug di binary
 # CONFIG_DEBUG_INFO is not set
 
-# Turnoff printk
-# CONFIG_PRINTK= is not set
+CONFIG_PRINTK=y
 
