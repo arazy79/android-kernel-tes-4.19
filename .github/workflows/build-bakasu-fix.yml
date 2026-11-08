@@ -5,10 +5,10 @@ on:
     inputs:
       repo:
         required: false
-        default: 'arazy79/kernel_4.19'
+        default: 'arazy79/android-kernel-tes-4.19'
       branch:
         required: true
-        default: 'a16-sonic'
+        default: 'rsuntk'
       defconfig:
         required: true
         default: 'X00TD_defconfig'
@@ -189,18 +189,26 @@ jobs:
           else:
               print("SKIP: cmdline.c")
 
-          # FIX 3: fs/proc/task_mmu.c - pagemap_read
+          # FIX 3: fs/proc/task_mmu.c - pagemap_read (DIPERBARUI UNTUK 3 VARIASI)
           with open('fs/proc/task_mmu.c', 'r') as f:
               c = f.read()
           if 'find_vma(mm, start_vaddr)' not in c:
               injected = False
               
-              # Coba Anchor 1 (4.19 versi modern: mmap_read_lock_killable)
+              # Tambahin deklarasi variabel 'vma' kalau belum ada
+              if 'struct vm_area_struct *vma;' not in c:
+                  c = c.replace(
+                      '\tstruct mm_struct *mm = file->private_data;\n\tstruct pagemapread pm;\n',
+                      '\tstruct mm_struct *mm = file->private_data;\n\tstruct pagemapread pm;\n#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n\tstruct vm_area_struct *vma;\n#endif\n',
+                      1
+                  )
+
+              # Anchor 1: versi modern (walk_page_range pakai mm, ops, pm)
               old1 = (
                   '\t\tret = mmap_read_lock_killable(mm);\n'
                   '\t\tif (ret)\n'
                   '\t\t\tgoto out_free;\n'
-                  '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);'
+                  '\t\tret = walk_page_range(mm, start_vaddr, end, &pagemap_ops, &pm);'
               )
               new1 = (
                   '\t\tret = mmap_read_lock_killable(mm);\n'
@@ -211,7 +219,7 @@ jobs:
                   '\t\tif (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))\n'
                   '\t\t\tgoto bypass_orig_flow;\n'
                   '#endif\n'
-                  '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);\n'
+                  '\t\tret = walk_page_range(mm, start_vaddr, end, &pagemap_ops, &pm);\n'
                   '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
                   'bypass_orig_flow:\n'
                   '#endif'
@@ -220,17 +228,17 @@ jobs:
                   c = c.replace(old1, new1, 1)
                   injected = True
                   print("OK: task_mmu.c pagemap_read patched (Anchor 1)")
-
-              # Coba Anchor 2 (4.19 versi jadul: down_read_killable)
+              
+              # Anchor 2: versi jadul (walk_page_range tanpa mm)
               if not injected:
                   old2 = (
-                      '\t\tret = down_read_killable(&mm->mmap_sem);\n'
+                      '\t\tret = mmap_read_lock_killable(mm);\n'
                       '\t\tif (ret)\n'
                       '\t\t\tgoto out_free;\n'
                       '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);'
                   )
                   new2 = (
-                      '\t\tret = down_read_killable(&mm->mmap_sem);\n'
+                      '\t\tret = mmap_read_lock_killable(mm);\n'
                       '\t\tif (ret)\n'
                       '\t\t\tgoto out_free;\n'
                       '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
@@ -247,6 +255,33 @@ jobs:
                       c = c.replace(old2, new2, 1)
                       injected = True
                       print("OK: task_mmu.c pagemap_read patched (Anchor 2)")
+
+              # Anchor 3: versi 4.14/4.9 (down_read + walk_page_range tanpa mm)
+              if not injected:
+                  old3 = (
+                      '\t\tret = down_read_killable(&mm->mmap_sem);\n'
+                      '\t\tif (ret)\n'
+                      '\t\t\tgoto out_free;\n'
+                      '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk, &pm);'
+                  )
+                  new3 = (
+                      '\t\tret = down_read_killable(&mm->mmap_sem);\n'
+                      '\t\tif (ret)\n'
+                      '\t\t\tgoto out_free;\n'
+                      '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
+                      '\t\tvma = find_vma(mm, start_vaddr);\n'
+                      '\t\tif (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))\n'
+                      '\t\t\tgoto bypass_orig_flow;\n'
+                      '#endif\n'
+                      '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk, &pm);\n'
+                      '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
+                      'bypass_orig_flow:\n'
+                      '#endif'
+                  )
+                  if old3 in c:
+                      c = c.replace(old3, new3, 1)
+                      injected = True
+                      print("OK: task_mmu.c pagemap_read patched (Anchor 3)")
 
               if not injected:
                   print("ERROR: task_mmu.c pagemap anchor missing completely", file=sys.stderr)
