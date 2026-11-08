@@ -320,6 +320,41 @@ jobs:
                   print("OK: services.c symbols exported")
           PYEOF
 
+      - name: Fix write_op export (Linker fix)
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        run: |
+          set -e
+          python3 <<'PYEOF'
+          import os
+          import sys
+
+          if os.path.exists('security/selinux/selinuxfs.c'):
+              with open('security/selinux/selinuxfs.c', 'r') as f:
+                  lines = f.readlines()
+
+              # Cari baris yang mendefinisikan write_op
+              for i, line in enumerate(lines):
+                  if 'write_op[]' in line and '=' in line:
+                      # Pastikan tidak ada 'static'
+                      if 'static' in line:
+                          lines[i] = line.replace('static ', '')
+                      # Tambahkan EXPORT_SYMBOL setelah array jika belum ada
+                      # Kita cari kurung kurawal penutup '};' setelahnya
+                      j = i
+                      while j < len(lines) and '};' not in lines[j]:
+                          j += 1
+                      if j < len(lines):
+                          # Cek apakah 2 baris setelahnya sudah ada EXPORT_SYMBOL
+                          if j + 2 < len(lines) and 'EXPORT_SYMBOL(write_op)' not in lines[j+1]:
+                              lines.insert(j+1, 'EXPORT_SYMBOL(write_op);\n')
+                      break
+
+              with open('security/selinux/selinuxfs.c', 'w') as f:
+                  f.writelines(lines)
+              print("OK: write_op exported with EXPORT_SYMBOL")
+          PYEOF
+
       - name: Select toolchain
         id: tc
         env:
