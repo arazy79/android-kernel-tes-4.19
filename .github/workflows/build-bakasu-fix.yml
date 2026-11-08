@@ -5,10 +5,10 @@ on:
     inputs:
       repo:
         required: false
-        default: 'arazy79/android-kernel-tes-4.19'
+        default: 'arazy79/kernel_4.19'
       branch:
         required: true
-        default: 'rsuntk'
+        default: 'a16-sonic'
       defconfig:
         required: true
         default: 'X00TD_defconfig'
@@ -190,22 +190,19 @@ jobs:
               print("SKIP: cmdline.c")
 
           # FIX 3: fs/proc/task_mmu.c - pagemap_read
-          # Deteksi pakai find_vma(mm, start_vaddr) — string ini HANYA ada
-          # di pagemap_read yang sudah di-patch. BUKAN false positive dari
-          # show_smap/show_smaps_rollup (yang pakai SUSFS_IS_INODE_SUS_MAP).
           with open('fs/proc/task_mmu.c', 'r') as f:
               c = f.read()
           if 'find_vma(mm, start_vaddr)' not in c:
-              # Patch hunk #6 (deklarasi vma) sudah sukses sebelumnya.
-              # Tinggal tambah bypass check dengan context yang benar:
-              # mmap_read_lock_killable(mm), BUKAN down_read_killable(&mm->mmap_sem).
-              old = (
+              injected = False
+              
+              # Coba Anchor 1 (4.19 versi modern: mmap_read_lock_killable)
+              old1 = (
                   '\t\tret = mmap_read_lock_killable(mm);\n'
                   '\t\tif (ret)\n'
                   '\t\t\tgoto out_free;\n'
                   '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);'
               )
-              new = (
+              new1 = (
                   '\t\tret = mmap_read_lock_killable(mm);\n'
                   '\t\tif (ret)\n'
                   '\t\t\tgoto out_free;\n'
@@ -219,10 +216,43 @@ jobs:
                   'bypass_orig_flow:\n'
                   '#endif'
               )
-              if old not in c:
-                  print("ERROR: task_mmu.c pagemap anchor missing", file=sys.stderr); sys.exit(1)
-              open('fs/proc/task_mmu.c', 'w').write(c.replace(old, new, 1))
-              print("OK: task_mmu.c pagemap_read patched")
+              if old1 in c:
+                  c = c.replace(old1, new1, 1)
+                  injected = True
+                  print("OK: task_mmu.c pagemap_read patched (Anchor 1)")
+
+              # Coba Anchor 2 (4.19 versi jadul: down_read_killable)
+              if not injected:
+                  old2 = (
+                      '\t\tret = down_read_killable(&mm->mmap_sem);\n'
+                      '\t\tif (ret)\n'
+                      '\t\t\tgoto out_free;\n'
+                      '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);'
+                  )
+                  new2 = (
+                      '\t\tret = down_read_killable(&mm->mmap_sem);\n'
+                      '\t\tif (ret)\n'
+                      '\t\t\tgoto out_free;\n'
+                      '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
+                      '\t\tvma = find_vma(mm, start_vaddr);\n'
+                      '\t\tif (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))\n'
+                      '\t\t\tgoto bypass_orig_flow;\n'
+                      '#endif\n'
+                      '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);\n'
+                      '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
+                      'bypass_orig_flow:\n'
+                      '#endif'
+                  )
+                  if old2 in c:
+                      c = c.replace(old2, new2, 1)
+                      injected = True
+                      print("OK: task_mmu.c pagemap_read patched (Anchor 2)")
+
+              if not injected:
+                  print("ERROR: task_mmu.c pagemap anchor missing completely", file=sys.stderr)
+                  sys.exit(1)
+              else:
+                  open('fs/proc/task_mmu.c', 'w').write(c)
           else:
               print("SKIP: task_mmu.c already complete")
 
