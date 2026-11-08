@@ -1,0 +1,417 @@
+name: Kernel Build X00TD 4.19 (BakaSU + SuSFS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        required: false
+        default: 'arazy79/kernel_4.19'
+      branch:
+        required: true
+        default: 'rsuntk'
+      defconfig:
+        required: true
+        default: 'X00TD_defconfig'
+      toolchain:
+        type: choice
+        default: 'llvm'
+        options: [default, llvm, gcc]
+      kcflags_w:
+        type: boolean
+        default: false
+      enable_ksu:
+        type: boolean
+        default: true
+      bakasu_ref:
+        required: true
+        default: 'd5e9e025b8b49155f8014684d64c91742b465f65'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Jakarta
+      ARCH: arm64
+      CCACHE_DIR: ${{ github.workspace }}/kernel/out/.ccache
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repo }}
+          ref: ${{ github.event.inputs.branch }}
+          path: kernel
+          submodules: recursive
+
+      - name: Setup BakaSU
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        id: ksu
+        working-directory: kernel
+        env:
+          BAKASU_REF: ${{ github.event.inputs.bakasu_ref }}
+        run: |
+          set -e
+          git clone https://github.com/arazy79/BakaSU KernelSU
+          git -C KernelSU checkout "$BAKASU_REF"
+          KSU_SHA="$(git -C KernelSU rev-parse HEAD)"
+          echo "short_sha=${KSU_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          sh KernelSU/kernel/setup.sh "$BAKASU_REF"
+          [ -f drivers/kernelsu/Kconfig ] || { echo "::error::Kconfig tidak ada"; exit 1; }
+          echo "OK: BakaSU terintegrasi"
+
+      - name: Apply JackA1ltman hooks (ksu_handle_*)
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        run: |
+          set -e
+          BUILDER_SHA=dcd789634247c77d8549a42aef232c680a905585
+          RAW="https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/$BUILDER_SHA/Patches"
+          curl -fLSs -o /tmp/hooks.sh "$RAW/susfs_inline_hook_patches.sh"
+          bash /tmp/hooks.sh ./ | tee /tmp/hook.log
+          for f in fs/exec.c fs/open.c fs/read_write.c fs/stat.c drivers/input/input.c kernel/reboot.c kernel/sys.c; do
+            grep -q "ksu_" "$f" || { echo "::error::ksu hook missing di $f"; exit 1; }
+          done
+          echo "OK: JackA1ltman hooks terpasang"
+
+      - name: Apply SuSFS kernel patch
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        run: |
+          set -e
+          PATCH_FILE="susfs_x00td_419.patch"
+          [ -f "$PATCH_FILE" ] || { echo "::error::$PATCH_FILE tidak ada"; ls -la | head -30; exit 1; }
+          patch -p1 --forward --no-backup-if-mismatch < "$PATCH_FILE" || true
+          if find . -name "*.rej" | grep -q .; then
+            echo "::warning::hunk gagal:"; find . -name "*.rej"
+          fi
+          [ -f fs/susfs.c ] || { echo "::error::fs/susfs.c tidak ada"; exit 1; }
+          [ -f include/linux/susfs.h ] || { echo "::error::susfs.h tidak ada"; exit 1; }
+          [ -f include/linux/susfs_def.h ] || { echo "::error::susfs_def.h tidak ada"; exit 1; }
+          echo "OK: SuSFS patch applied"
+
+      - name: Fix missing includes (awk-based)
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        run: |
+          set -e
+          if ! grep -q '#include <linux/susfs_def.h>' fs/super.c 2>/dev/null; then
+            echo "Fixing fs/super.c..."
+            awk '
+              /^static int thaw_super_locked/ && !done {
+                print "#ifdef CONFIG_KSU_SUSFS"
+                print "#include <linux/susfs_def.h>"
+                print "#endif"
+                print "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT"
+                print "extern bool susfs_is_current_ksu_domain(void);"
+                print "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;"
+                print "#endif"
+                print ""
+                done = 1
+              }
+              { print }
+            ' fs/super.c > fs/super.c.new && mv fs/super.c.new fs/super.c
+          else
+            echo "fs/super.c sudah OK"
+          fi
+          if ! grep -q '#include <linux/susfs_def.h>' fs/namespace.c 2>/dev/null; then
+            echo "Fixing fs/namespace.c..."
+            awk '
+              /^unsigned int sysctl_mount_max/ && !done {
+                print "#ifdef CONFIG_KSU_SUSFS"
+                print "#include <linux/susfs_def.h>"
+                print "#endif"
+                print "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT"
+                print "extern bool susfs_is_current_ksu_domain(void);"
+                print "extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;"
+                print "#define CL_COPY_MNT_NS BIT(25)"
+                print "#endif"
+                print ""
+                done = 1
+              }
+              { print }
+            ' fs/namespace.c > fs/namespace.c.new && mv fs/namespace.c.new fs/namespace.c
+          else
+            echo "fs/namespace.c sudah OK"
+          fi
+          grep -q '#include <linux/susfs_def.h>' fs/super.c     || { echo "::error::super.c susfs_def.h"; exit 1; }
+          grep -q '#include <linux/susfs_def.h>' fs/namespace.c || { echo "::error::namespace.c susfs_def.h"; exit 1; }
+          echo "OK: manual include fix berhasil"
+          find . -name "*.rej" -delete || true
+
+      - name: Fix remaining optional patches (python-based)
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        run: |
+          set -e
+          python3 <<'PYEOF'
+          import sys
+
+          # FIX 1: fs/namespace.c (vfs_create_mount)
+          with open('fs/namespace.c', 'r') as f:
+              c = f.read()
+          if 'susfs_alloc_non_unshare_ksu_vfsmnt(fc->source' not in c:
+              old = '\tmnt = alloc_vfsmnt(fc->source ?: "none");'
+              new = '''#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+          	if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted)) {
+          		if (susfs_is_current_ksu_domain()) {
+          			mnt = susfs_alloc_non_unshare_ksu_vfsmnt(fc->source ?: "none");
+          			goto bypass_orig_flow;
+          		}
+          	}
+          #endif
+          	mnt = alloc_vfsmnt(fc->source ?: "none");
+          #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+          bypass_orig_flow:
+          #endif'''
+              if old not in c:
+                  print("ERROR: namespace.c anchor missing", file=sys.stderr); sys.exit(1)
+              open('fs/namespace.c', 'w').write(c.replace(old, new, 1))
+              print("OK: namespace.c")
+          else:
+              print("SKIP: namespace.c")
+
+          # FIX 2: fs/proc/cmdline.c
+          with open('fs/proc/cmdline.c', 'r') as f:
+              c = f.read()
+          if 'susfs_spoof_cmdline_or_bootconfig' not in c:
+              c = c.replace('static int cmdline_proc_show(struct seq_file *m, void *v)',
+                  '#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n'
+                  'extern struct static_key_false susfs_is_fake_cmdline_or_bootconfig_buffer_set;\n'
+                  'extern void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m);\n'
+                  '#endif\n\nstatic int cmdline_proc_show(struct seq_file *m, void *v)', 1)
+              c = c.replace('{\n\tseq_puts(m, proc_command_line);',
+                  '{\n#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n'
+                  '\tif (static_branch_likely(&susfs_is_fake_cmdline_or_bootconfig_buffer_set)) {\n'
+                  '\t\tsusfs_spoof_cmdline_or_bootconfig(m);\n'
+                  "\t\tseq_putc(m, '\\n');\n\t\treturn 0;\n\t}\n#endif\n"
+                  '\tseq_puts(m, proc_command_line);', 1)
+              open('fs/proc/cmdline.c', 'w').write(c)
+              print("OK: cmdline.c")
+          else:
+              print("SKIP: cmdline.c")
+
+          # FIX 3: fs/proc/task_mmu.c - pagemap_read
+          # Deteksi pakai find_vma(mm, start_vaddr) — string ini HANYA ada
+          # di pagemap_read yang sudah di-patch. BUKAN false positive dari
+          # show_smap/show_smaps_rollup (yang pakai SUSFS_IS_INODE_SUS_MAP).
+          with open('fs/proc/task_mmu.c', 'r') as f:
+              c = f.read()
+          if 'find_vma(mm, start_vaddr)' not in c:
+              # Patch hunk #6 (deklarasi vma) sudah sukses sebelumnya.
+              # Tinggal tambah bypass check dengan context yang benar:
+              # mmap_read_lock_killable(mm), BUKAN down_read_killable(&mm->mmap_sem).
+              old = (
+                  '\t\tret = mmap_read_lock_killable(mm);\n'
+                  '\t\tif (ret)\n'
+                  '\t\t\tgoto out_free;\n'
+                  '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);'
+              )
+              new = (
+                  '\t\tret = mmap_read_lock_killable(mm);\n'
+                  '\t\tif (ret)\n'
+                  '\t\t\tgoto out_free;\n'
+                  '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
+                  '\t\tvma = find_vma(mm, start_vaddr);\n'
+                  '\t\tif (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))\n'
+                  '\t\t\tgoto bypass_orig_flow;\n'
+                  '#endif\n'
+                  '\t\tret = walk_page_range(start_vaddr, end, &pagemap_walk);\n'
+                  '#ifdef CONFIG_KSU_SUSFS_SUS_MAP\n'
+                  'bypass_orig_flow:\n'
+                  '#endif'
+              )
+              if old not in c:
+                  print("ERROR: task_mmu.c pagemap anchor missing", file=sys.stderr); sys.exit(1)
+              open('fs/proc/task_mmu.c', 'w').write(c.replace(old, new, 1))
+              print("OK: task_mmu.c pagemap_read patched")
+          else:
+              print("SKIP: task_mmu.c already complete")
+
+          # FIX 4: kernel/sys.c (newuname)
+          with open('kernel/sys.c', 'r') as f:
+              c = f.read()
+          if 'susfs_spoof_uname(&tmp)' not in c:
+              c = c.replace('SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)',
+                  '#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME\n'
+                  'extern struct static_key_false susfs_is_uname_spoof_buffer_set;\n'
+                  'extern void susfs_spoof_uname(struct new_utsname* tmp);\n#endif\n'
+                  'SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)', 1)
+              c = c.replace(
+                  '\tdown_read(&uts_sem);\n\tmemcpy(&tmp, utsname(), sizeof(tmp));\n#ifndef CONFIG_FAKE_UNAME_NONE',
+                  '\tdown_read(&uts_sem);\n\tmemcpy(&tmp, utsname(), sizeof(tmp));\n'
+                  '#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME\n'
+                  '\tif (static_branch_likely(&susfs_is_uname_spoof_buffer_set))\n'
+                  '\t\tsusfs_spoof_uname(&tmp);\n#endif\n'
+                  '#ifndef CONFIG_FAKE_UNAME_NONE', 1)
+              open('kernel/sys.c', 'w').write(c)
+              print("OK: kernel/sys.c")
+          else:
+              print("SKIP: kernel/sys.c")
+          PYEOF
+
+          echo "=== Verifikasi ==="
+          grep -q "susfs_alloc_non_unshare_ksu_vfsmnt(fc->source" fs/namespace.c     || { echo "::error::namespace.c gagal"; exit 1; }
+          grep -q "susfs_spoof_cmdline_or_bootconfig" fs/proc/cmdline.c               || { echo "::error::cmdline.c gagal"; exit 1; }
+          grep -q "find_vma(mm, start_vaddr)" fs/proc/task_mmu.c                     || { echo "::error::task_mmu.c pagemap gagal"; exit 1; }
+          grep -q "susfs_spoof_uname(&tmp)" kernel/sys.c                             || { echo "::error::sys.c gagal"; exit 1; }
+          echo "OK: semua optional patch berhasil"
+
+      - name: Select toolchain
+        id: tc
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+        run: |
+          case "$TOOLCHAIN" in
+            llvm) echo "dir=$HOME/neutron-clang" >> "$GITHUB_OUTPUT"; echo "key=llvm-24-neutron-06092026" >> "$GITHUB_OUTPUT"; echo "out_prefix=kernel-out-llvm-" >> "$GITHUB_OUTPUT";;
+            gcc)  echo "dir=$HOME/gcc-arm64" >> "$GITHUB_OUTPUT"; echo "key=gcc-eva-arm64-06052026" >> "$GITHUB_OUTPUT"; echo "out_prefix=kernel-out-gcc-" >> "$GITHUB_OUTPUT";;
+            *)    echo "dir=" >> "$GITHUB_OUTPUT"; echo "key=" >> "$GITHUB_OUTPUT"; echo "out_prefix=kernel-build-" >> "$GITHUB_OUTPUT";;
+          esac
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: |
+            kernel/out/.ccache
+            kernel/out
+          key: ${{ steps.tc.outputs.out_prefix }}${{ github.run_id }}
+          restore-keys: |
+            ${{ steps.tc.outputs.out_prefix }}
+
+      - name: Cache toolchain
+        id: tc_cache
+        if: ${{ github.event.inputs.toolchain != 'default' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.tc.outputs.dir }}
+          key: ${{ steps.tc.outputs.key }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick libncurses-dev lib32readline-dev lib32z1-dev liblz4-tool libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev
+          sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang llvm lld zstd wget xz-utils
+
+      - name: Fetch toolchain
+        if: ${{ github.event.inputs.toolchain != 'default' && steps.tc_cache.outputs.cache-hit != 'true' }}
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+        run: |
+          if [ "$TOOLCHAIN" = "llvm" ]; then
+            mkdir -p "$HOME/neutron-clang"
+            wget -q "https://github.com/Neutron-Toolchains/clang-build-catalogue/releases/download/06092026/neutron-clang-06092026.tar.zst" -O /tmp/clang.tar.zst
+            tar -xf /tmp/clang.tar.zst -C "$HOME/neutron-clang"
+            rm -f /tmp/clang.tar.zst
+            [ -x "$HOME/neutron-clang/bin/clang" ] || { echo "::error::clang tidak ada"; exit 1; }
+          else
+            cd "$HOME"
+            wget -q "https://github.com/mvaisakh/gcc-build/releases/download/06052026/eva-gcc-arm64-06052026.xz" -O gcc.tar.xz
+            tar -xf gcc.tar.xz
+            rm -f gcc.tar.xz
+            [ -d "$HOME/gcc-arm64/bin" ] || { echo "::error::gcc-arm64/bin tidak ada"; exit 1; }
+          fi
+
+      - name: Setup toolchain env
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+          KCFLAGS_W: ${{ github.event.inputs.kcflags_w }}
+        run: |
+          case "$TOOLCHAIN" in
+            llvm)
+              TC="$HOME/neutron-clang"
+              echo "$TC/bin" >> "$GITHUB_PATH"
+              echo "LD_LIBRARY_PATH=$TC/lib:$TC/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+              echo "TC_MAKE_ARGS=LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+            gcc)
+              TC="$HOME/gcc-arm64"
+              prefix=""
+              for p in aarch64-linux-android- aarch64-linux-gnu- aarch64-elf- aarch64-linux-; do
+                if [ -f "$TC/bin/${p}gcc" ]; then prefix="$p"; break; fi
+              done
+              if [ -z "$prefix" ]; then echo "::error::gcc tidak ada"; exit 1; fi
+              echo "$TC/bin" >> "$GITHUB_PATH"
+              echo "TC_MAKE_ARGS=CROSS_COMPILE=$TC/bin/$prefix CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "TC_MAKE_ARGS=CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> "$GITHUB_ENV"
+              ;;
+          esac
+          if [ "$KCFLAGS_W" = "true" ] || [ "$TOOLCHAIN" = "gcc" ]; then
+            echo "TC_KCFLAGS=-w" >> "$GITHUB_ENV"
+          else
+            echo "TC_KCFLAGS=-Wno-error" >> "$GITHUB_ENV"
+          fi
+
+      - name: Prepare output
+        run: mkdir -p kernel/out
+
+      - name: Make defconfig
+        working-directory: kernel
+        env:
+          ENABLE_KSU: ${{ github.event.inputs.enable_ksu }}
+        run: |
+          cp "arch/arm64/configs/vendor/asus/${{ github.event.inputs.defconfig }}" out/.config
+          if [ "$ENABLE_KSU" = "true" ]; then
+            {
+              echo "CONFIG_KSU=y"
+              echo "CONFIG_KSU_SUSFS=y"
+              echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
+              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
+              echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
+              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
+              echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
+              echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
+              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
+              echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
+              echo "CONFIG_KSU_SUSFS_SUS_MAP=y"
+            } >> out/.config
+          fi
+          yes "" | make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS oldconfig
+          if [ "$ENABLE_KSU" = "true" ]; then
+            grep -q '^CONFIG_KSU=y' out/.config || { echo "::error::CONFIG_KSU tidak aktif"; exit 1; }
+            grep -q '^CONFIG_KSU_SUSFS=y' out/.config || { echo "::error::CONFIG_KSU_SUSFS tidak aktif"; exit 1; }
+            grep -E '^CONFIG_KSU' out/.config
+          fi
+
+      - name: Build kernel
+        working-directory: kernel
+        env:
+          TOOLCHAIN: ${{ github.event.inputs.toolchain }}
+        run: |
+          echo "CPU cores: $(nproc)"
+          if [ "$TOOLCHAIN" != "gcc" ]; then
+            make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS CC="ccache clang" KCFLAGS="$TC_KCFLAGS" -j"$(nproc)"
+          else
+            make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS KCFLAGS="$TC_KCFLAGS" -j"$(nproc)"
+          fi
+
+      - name: Verify KSU & SuSFS di System.map
+        if: ${{ github.event.inputs.enable_ksu == 'true' }}
+        working-directory: kernel
+        continue-on-error: true
+        run: |
+          grep -E '^CONFIG_KSU' out/.config || true
+          if grep -qi "ksu" out/System.map && grep -qi "susfs" out/System.map; then
+            echo "OK: simbol ksu + susfs ada"
+          else
+            echo "::warning::simbol tidak ditemukan"
+            exit 1
+          fi
+
+      - name: Build DTB + Image.gz-dtb
+        working-directory: kernel
+        run: |
+          make ARCH=${{ env.ARCH }} O=out $TC_MAKE_ARGS dtbs
+          DTB=$(find out/arch/arm64/boot/dts -iname "*x00td*.dtb" | head -1)
+          [ -z "$DTB" ] && DTB=$(find out/arch/arm64/boot/dts -name "sdm636.dtb" | head -1)
+          [ -z "$DTB" ] && DTB=$(find out/arch/arm64/boot/dts -name "sdm660.dtb" | head -1)
+          [ -z "$DTB" ] && { echo "::error::DTB tidak ditemukan"; exit 1; }
+          echo "Using DTB: $DTB"
+          cat out/arch/arm64/boot/Image.gz "$DTB" > out/arch/arm64/boot/Image.gz-dtb
+          ls -lh out/arch/arm64/boot/Image.gz-dtb
+
+      - name: Upload Image.gz-dtb
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel-X00TD-BakaSU${{ steps.ksu.outputs.short_sha && format('-{0}', steps.ksu.outputs.short_sha) || '-NOKSU' }}-${{ github.event.inputs.toolchain }}-${{ github.run_id }}
+          path: kernel/out/arch/arm64/boot/Image.gz-dtb
