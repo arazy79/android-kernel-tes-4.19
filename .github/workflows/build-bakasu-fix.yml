@@ -5,7 +5,7 @@ on:
     inputs:
       repo:
         required: false
-        default: 'android-kernel-tes-4.19'
+        default: 'arazy79/android-kernel-tes-4.19'
       branch:
         required: true
         default: 'rsuntk'
